@@ -61,11 +61,20 @@ __device__ void mark_block_used(FileSystem *fs, int block_idx) {
   fs->start_of_superblock[block_idx/8] = bitmap | mask;
 }
 
-__device__ char * alloc_new_blocks(FileSystem *fs, int target_block_size) {
-  // allocate contiguous blocks with `target_block_size`, register it in the bitmap
-  // return the pointer to the start of the first block
-  // if no enough contiguous blocks, have to manage the fragmentation
+__device__ void mark_block_unused(FileSystem *fs, int block_idx) {
+  // mark a block as unused in the superblock
+  // operate on only one block at a time
+  uchar bitmap = fs->start_of_superblock[block_idx/8];
+  uchar mask = 1 << (block_idx % 8);
+  fs->start_of_superblock[block_idx/8] = bitmap & ~mask;
 }
+
+__device__ bool check_block_used(FileSystem *fs, int block_idx) {
+  uchar bitmap = fs->start_of_superblock[block_idx/8];
+  uchar mask = 1 << (block_idx % 8);
+  return bitmap & mask;
+}
+
 
 
 
@@ -76,6 +85,7 @@ __device__ u32 fs_open(FileSystem *fs, char *s, int op)
   // s ends with '\0'
   // op: open mode, G_READ or G_WRITE
   // returns the file pointer, which is the index of the FCB entry
+  gtime++;
 
   // find if the specific file already exists in the FCB
   bool file_exists = false;
@@ -109,12 +119,13 @@ __device__ u32 fs_open(FileSystem *fs, char *s, int op)
       } else {  // file not exists
         // allocate a new fcb index for the newly-created file
         for (int i = 0; i < fs->FCB_SIZE; i++)
-        {
+        { // find an unused fcb
           FCB target_fcb = fs->start_of_fcb[i];
           if (!target_fcb.is_on)
           {
             // mark the FCB as on
             fs->start_of_fcb[i].is_on = true;
+            fs->start_of_fcb[i].modified_time = gtime;  // time at creation
             // copy the filename
             int idx = 0;
             while (s[idx] != '\0')
@@ -124,7 +135,7 @@ __device__ u32 fs_open(FileSystem *fs, char *s, int op)
             }
             fs->start_of_fcb[i].filename[idx] = '\0';
 
-            fs->start_of_fcb[i].size = 0;
+            fs->start_of_fcb[i].size = 0; // no content for this file for now
             return i;
           }
         }
@@ -139,11 +150,20 @@ __device__ u32 fs_open(FileSystem *fs, char *s, int op)
   }
 }
 
+__device__ u32 block_of_bytes(FileSystem *fs, u32 bytes) {
+  // returns how many blocks the `bytes` information will occupy
+  u32 ret = bytes / fs->STORAGE_BLOCK_SIZE;
+  if ((bytes % fs->STORAGE_BLOCK_SIZE) != 0) {
+    ret++;
+  }
+  return ret;
+}
 
 __device__ void fs_read(FileSystem *fs, uchar *output, u32 size, u32 fp)
 {
 	/* Implement read operation here */
   // fp the index of the FCB
+  assert(fs->start_of_fcb[fp].is_on);
   uchar *start = fs->start_of_contents + fs->start_of_fcb[fp].start_block_idx * fs->STORAGE_BLOCK_SIZE;
   // read `size` bytes to buffer `output`
   for (u32 i = 0; i < size; i++)
@@ -152,11 +172,82 @@ __device__ void fs_read(FileSystem *fs, uchar *output, u32 size, u32 fp)
   } 
 }
 
+__device__ char * alloc_new_blocks(FileSystem *fs, int target_block_size) {
+  // allocate contiguous blocks with `target_block_size`, register it in the bitmap
+  // return the pointer to the start of the first block
+  // if no enough contiguous blocks, have to manage the fragmentation
+}
+
+
 __device__ u32 fs_write(FileSystem *fs, uchar* input, u32 size, u32 fp)
 {
 	/* Implement write operation here */
   // fp the index of the FCB
   gtime++;
+
+  uchar *start = fs->start_of_contents + fs->start_of_fcb[fp].start_block_idx * fs->STORAGE_BLOCK_SIZE; // the initial byte of the file content
+  FCB fcb = fs->start_of_fcb[fp];   // the fcb for this file
+  u16 start_block_idx = fcb.start_block_idx;
+  FCB *fcbPtr = &fcb;
+  
+  // if the file already exists, we have to free the blocks  
+  for (u32 i = 0; i < block_of_bytes(fs, fcb.size); i++)
+  {
+    mark_block_unused(fs, start_block_idx+i);
+  }
+  // empty the bytes, replace by 0
+  for (u32 i = 0; i < fcb.size; i++)
+  {
+    start[i] = 0;
+  }
+
+
+
+// TODO
+
+
+
+
+
+
+
+
+
+
+
+
+  // begin writing to new file
+  bool can_directly_write = true;
+  for (u32 i = 0; i < block_of_bytes(fs, size); i++)
+  {
+    if (check_block_used(fs, start_block_idx+i))
+    {
+      can_directly_write = false;
+      break;
+    }
+  }
+  
+  if (can_directly_write)
+  {
+    // directly write to it
+    for (u32 i = 0; i < size; i++)
+    {
+      start[i] = input[i];
+    }
+    for (u32 i = 0; i < block_of_bytes(fs, size); i++)
+    {
+      mark_block_used(fs, start_block_idx+i);
+    }
+    
+    return size;
+    
+  } else {
+    // cannot directly write, need to fix fragmentation, then directly write
+  }
+  
+  
+  
+  
 }
 __device__ void fs_gsys(FileSystem *fs, int op)
 {
