@@ -7,12 +7,23 @@
 
 typedef unsigned char uchar;
 typedef uint32_t u32;
+typedef uint16_t u16;
 
 #define G_WRITE 1
 #define G_READ 0
 #define LS_D 0
 #define LS_S 1
 #define RM 2
+
+// File control block
+volatile struct FCB {
+	char filename[20];	// maximum size of filename is 20 bytes
+	u32 size;	// the size of the file **in bytes**
+	u32 modified_time;	// the last modified time
+	u16 start_block_idx;	// the index of the first of its contiguous blocks
+	bool is_on;
+};
+
 
 struct FileSystem {
 	uchar *volume;
@@ -25,6 +36,10 @@ struct FileSystem {
 	int MAX_FILE_NUM;
 	int MAX_FILE_SIZE;
 	int FILE_BASE_ADDRESS;
+
+	uchar *start_of_superblock;
+	FCB *start_of_fcb;
+	uchar *start_of_contents;
 };
 
 
