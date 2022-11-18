@@ -16,7 +16,7 @@ typedef uint16_t u16;
 #define RM 2
 
 // File control block
-volatile struct FCB {
+struct FCB {
 	char filename[20];	// maximum size of filename is 20 bytes
 	u32 size;	// the size of the file **in bytes**
 	u32 modified_time;	// the last modified time
@@ -36,6 +36,7 @@ struct FileSystem {
 	int MAX_FILE_NUM;
 	int MAX_FILE_SIZE;
 	int FILE_BASE_ADDRESS;
+	int STORAGE_BLOCK_COUNT;
 
 	uchar *start_of_superblock;
 	FCB *start_of_fcb;

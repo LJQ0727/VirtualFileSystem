@@ -88,7 +88,7 @@ int main() {
   cudaError_t cudaStatus;
   load_binaryFile(DATAFILE, input, MAX_FILE_SIZE);
 
-  printf("sizeof is %d\n", sizeof(FCB));
+//   printf("sizeof is %d\n", sizeof(FCB));
 
   // Launch to GPU kernel with single thread
   mykernel<<<1, 1>>>(input, output);

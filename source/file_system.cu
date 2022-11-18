@@ -26,6 +26,7 @@ __device__ void fs_init(FileSystem *fs, uchar *volume, int SUPERBLOCK_SIZE,
   fs->MAX_FILE_NUM = MAX_FILE_NUM;
   fs->MAX_FILE_SIZE = MAX_FILE_SIZE;
   fs->FILE_BASE_ADDRESS = FILE_BASE_ADDRESS;
+  fs->STORAGE_BLOCK_COUNT = (fs->STORAGE_SIZE-fs->SUPERBLOCK_SIZE-fs->FCB_SIZE) / fs->STORAGE_BLOCK_SIZE;
 
   // init some custom pointers
   fs->start_of_fcb = (FCB*)(volume+SUPERBLOCK_SIZE);
@@ -42,7 +43,7 @@ __device__ void fs_init(FileSystem *fs, uchar *volume, int SUPERBLOCK_SIZE,
 __device__ bool strmatch(char *start1, char* start2) {
   // match two strings, return true if they are the same
   int idx = 0;
-  while (start1[idx] != '\0' && start2[idx] != '\0')
+  while (!(start1[idx] == '\0' || start2[idx] == '\0'))
   {
     if (start1[idx] != start2[idx])
     {
@@ -50,6 +51,11 @@ __device__ bool strmatch(char *start1, char* start2) {
     }
     idx++;
   }
+  if (start1[idx] != start2[idx])
+  {
+    return false;
+  }
+
   return true;
 }
 
@@ -115,6 +121,7 @@ __device__ u32 fs_open(FileSystem *fs, char *s, int op)
       if (file_exists) {
         // have to empty the file in the next write operation
         // in which we will check the `size` attribute, if it's not 0, we will free the blocks
+        printf("fs_open file %s exists, index %d\n", s, fcb_idx);
         return fcb_idx;
       } else {  // file not exists
         // allocate a new fcb index for the newly-created file
@@ -136,6 +143,8 @@ __device__ u32 fs_open(FileSystem *fs, char *s, int op)
             fs->start_of_fcb[i].filename[idx] = '\0';
 
             fs->start_of_fcb[i].size = 0; // no content for this file for now
+            
+            printf("fs_open new fcb %s, index %d\n", s, i);
             return i;
           }
         }
@@ -165,6 +174,10 @@ __device__ void fs_read(FileSystem *fs, uchar *output, u32 size, u32 fp)
   // fp the index of the FCB
   assert(fs->start_of_fcb[fp].is_on);
   uchar *start = fs->start_of_contents + fs->start_of_fcb[fp].start_block_idx * fs->STORAGE_BLOCK_SIZE;
+  FCB fcb = fs->start_of_fcb[fp];   // the fcb for this file
+
+  printf("fs_read %d bytes from %s\n", size, fcb.filename);
+  
   // read `size` bytes to buffer `output`
   for (u32 i = 0; i < size; i++)
   {
@@ -172,12 +185,76 @@ __device__ void fs_read(FileSystem *fs, uchar *output, u32 size, u32 fp)
   } 
 }
 
-__device__ char * alloc_new_blocks(FileSystem *fs, int target_block_size) {
-  // allocate contiguous blocks with `target_block_size`, register it in the bitmap
-  // return the pointer to the start of the first block
-  // if no enough contiguous blocks, have to manage the fragmentation
+__device__ void block_move(FileSystem *fs, int target_block_idx, int source_block_idx) {
+  uchar *target_start = fs->start_of_contents + target_block_idx * fs->STORAGE_BLOCK_SIZE;
+  uchar *source_start = fs->start_of_contents + source_block_idx * fs->STORAGE_BLOCK_SIZE;
+  for (int i = 0; i < fs->STORAGE_BLOCK_SIZE; i++)
+  {
+    target_start[i] = source_start[i];
+  }
+  mark_block_unused(fs, source_block_idx);
+  mark_block_used(fs, target_block_idx);
 }
 
+__device__ u16 alloc_new_blocks(FileSystem *fs, int target_block_size) {
+  // allocate contiguous blocks with `target_block_size`, register it in the bitmap
+  // return the index of the first block
+  // if no enough contiguous blocks, have to manage the fragmentation
+  int current_block_idx = 0;
+  int block_count = 0;
+  while (current_block_idx < fs->STORAGE_BLOCK_COUNT)
+  {
+    if (check_block_used(fs, current_block_idx)) {
+      // this block is used, reset the counter
+      block_count = 0;
+    } else {
+      block_count++;
+      if (block_count == target_block_size) {
+        // found enough contiguous blocks
+        return current_block_idx - target_block_size + 1;
+      }
+    }
+    current_block_idx++;
+  }
+
+  printf("No enough contiguous blocks, have to manage the fragmentation\n");
+  // not enough contiguous space, have to manage the fragmentation
+  // compation algorithm
+  int first_unused_block_idx = 0;
+  while (true)
+  {
+    // find the first unused block idx
+    while (first_unused_block_idx < fs->STORAGE_BLOCK_COUNT)
+    {
+      if (!check_block_used(fs, first_unused_block_idx)) {
+        break;
+      }
+      first_unused_block_idx++;
+    }
+    
+    
+    current_block_idx = first_unused_block_idx+1;
+    // find the next used block idx
+    while (current_block_idx < fs->STORAGE_BLOCK_COUNT)
+    {
+      if (check_block_used(fs, current_block_idx)) {
+        break;
+      }
+      current_block_idx++;
+    }
+    
+    // swap the two blocks
+    block_move(fs, first_unused_block_idx, current_block_idx);
+    first_unused_block_idx++;
+    current_block_idx++;
+    if (current_block_idx >= fs->STORAGE_BLOCK_COUNT) {
+      // no more used blocks
+      break;
+    }
+  }
+  
+  return alloc_new_blocks(fs, target_block_size);
+}
 
 __device__ u32 fs_write(FileSystem *fs, uchar* input, u32 size, u32 fp)
 {
@@ -185,11 +262,13 @@ __device__ u32 fs_write(FileSystem *fs, uchar* input, u32 size, u32 fp)
   // fp the index of the FCB
   gtime++;
 
+
   uchar *start = fs->start_of_contents + fs->start_of_fcb[fp].start_block_idx * fs->STORAGE_BLOCK_SIZE; // the initial byte of the file content
   FCB fcb = fs->start_of_fcb[fp];   // the fcb for this file
   u16 start_block_idx = fcb.start_block_idx;
-  FCB *fcbPtr = &fcb;
   
+  printf("fs_write %d bytes into %s\n", size, fcb.filename);
+
   // if the file already exists, we have to free the blocks  
   for (u32 i = 0; i < block_of_bytes(fs, fcb.size); i++)
   {
@@ -200,20 +279,6 @@ __device__ u32 fs_write(FileSystem *fs, uchar* input, u32 size, u32 fp)
   {
     start[i] = 0;
   }
-
-
-
-// TODO
-
-
-
-
-
-
-
-
-
-
 
 
   // begin writing to new file
@@ -238,11 +303,16 @@ __device__ u32 fs_write(FileSystem *fs, uchar* input, u32 size, u32 fp)
     {
       mark_block_used(fs, start_block_idx+i);
     }
+    fcb.size = size;
+    fcb.modified_time = gtime;
     
     return size;
     
   } else {
     // cannot directly write, need to fix fragmentation, then directly write
+    fcb.start_block_idx = alloc_new_blocks(fs, block_of_bytes(fs, size));
+    fcb.size = size;
+    fcb.modified_time = gtime;
   }
   
   
