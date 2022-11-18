@@ -200,6 +200,7 @@ __device__ u16 alloc_new_blocks(FileSystem *fs, int target_block_size) {
   // allocate contiguous blocks with `target_block_size`, register it in the bitmap
   // return the index of the first block
   // if no enough contiguous blocks, have to manage the fragmentation
+  printf("allocating %d blocks in alloc_new_blocks\n", target_block_size);
   int current_block_idx = 0;
   int block_count = 0;
   while (current_block_idx < fs->STORAGE_BLOCK_COUNT)
@@ -211,6 +212,7 @@ __device__ u16 alloc_new_blocks(FileSystem *fs, int target_block_size) {
       block_count++;
       if (block_count == target_block_size) {
         // found enough contiguous blocks
+        printf("contiguous block found, returning block %d\n", current_block_idx - target_block_size + 1);
         return current_block_idx - target_block_size + 1;
       }
     }
@@ -264,18 +266,18 @@ __device__ u32 fs_write(FileSystem *fs, uchar* input, u32 size, u32 fp)
 
 
   uchar *start = fs->start_of_contents + fs->start_of_fcb[fp].start_block_idx * fs->STORAGE_BLOCK_SIZE; // the initial byte of the file content
-  FCB fcb = fs->start_of_fcb[fp];   // the fcb for this file
-  u16 start_block_idx = fcb.start_block_idx;
+  FCB *fcb = fs->start_of_fcb+fp;   // the fcb for this file
+  u16 start_block_idx = fcb->start_block_idx;
   
-  printf("fs_write %d bytes into %s\n", size, fcb.filename);
+  printf("fs_write %d bytes into %s\n", size, fcb->filename);
 
-  // if the file already exists, we have to free the blocks  
-  for (u32 i = 0; i < block_of_bytes(fs, fcb.size); i++)
+  // if the file already exists, we have to free the blocks 
+  for (u32 i = 0; i < block_of_bytes(fs, fcb->size); i++)
   {
     mark_block_unused(fs, start_block_idx+i);
   }
   // empty the bytes, replace by 0
-  for (u32 i = 0; i < fcb.size; i++)
+  for (u32 i = 0; i < fcb->size; i++)
   {
     start[i] = 0;
   }
@@ -303,16 +305,18 @@ __device__ u32 fs_write(FileSystem *fs, uchar* input, u32 size, u32 fp)
     {
       mark_block_used(fs, start_block_idx+i);
     }
-    fcb.size = size;
-    fcb.modified_time = gtime;
+    fcb->size = size;
+    fcb->modified_time = gtime;
+    // printf("modified time of %s: %d\n", fcb->filename ,gtime);
     
     return size;
     
   } else {
+    printf("cannot directly write, finding new space\n");
     // cannot directly write, need to fix fragmentation, then directly write
-    fcb.start_block_idx = alloc_new_blocks(fs, block_of_bytes(fs, size));
-    fcb.size = size;
-    fcb.modified_time = gtime;
+    fcb->start_block_idx = alloc_new_blocks(fs, block_of_bytes(fs, size));
+    fcb->size = size;
+    fcb->modified_time = gtime;
   }
   
   
@@ -321,10 +325,139 @@ __device__ u32 fs_write(FileSystem *fs, uchar* input, u32 size, u32 fp)
 }
 __device__ void fs_gsys(FileSystem *fs, int op)
 {
+  // count number of files, needed by both
+  int file_count = 0;
+  for (int i = 0; i < fs->FCB_ENTRIES; i++)
+  {
+    FCB fcb = fs->start_of_fcb[i];
+    if (fcb.is_on)
+    {
+      file_count++;
+    }
+  }
+  // printf("number of files: %d\n", file_count);
+
 	/* Implement LS_D and LS_S operation here */
+  switch (op)
+  {
+  case LS_D:
+    {
+
+    // list the file name and order by modified time of files
+
+    printf("===sort by modified time===\n");
+
+    
+    int last_item_time = (1<<15); // trace the time of last printed file
+    // print the most recent modified file before the last item
+    for (int i = 0; i < file_count; i++)
+    {
+      int latest_modified_time = 0;
+      FCB latest_fcb;
+      for (int i = 0; i < fs->FCB_ENTRIES; i++)
+      {
+        FCB fcb = fs->start_of_fcb[i];
+        if (fcb.is_on && (fcb.modified_time > latest_modified_time) && (fcb.modified_time < last_item_time))
+        {
+          latest_fcb = fcb;
+          latest_modified_time = fcb.modified_time;
+        }
+        
+      }
+      last_item_time = latest_fcb.modified_time;
+      printf("%s\n", latest_fcb.filename);
+      // printf("%s   time%d\n", latest_fcb.filename, last_item_time);
+    }
+    
+
+    break;
+  }
+
+
+  case LS_S:
+    {
+      
+    printf("===sort by file size===\n");
+    // If there are several files with the same size, then first create first print.
+
+    
+    u32 last_item_time = (1<<31); // trace the time of last printed file
+    u32 last_item_size = (1<<31);
+
+    for (int i = 0; i < file_count; i++)
+    {
+      int latest_modified_time = 0;
+      FCB latest_fcb;
+      for (int i = 0; i < fs->FCB_ENTRIES; i++)
+      {
+        FCB fcb = fs->start_of_fcb[i];
+        if (fcb.is_on && (fcb.modified_time > latest_modified_time) && (fcb.modified_time < last_item_time))
+        {
+          latest_fcb = fcb;
+          latest_modified_time = fcb.modified_time;
+        }
+        
+      }
+      last_item_time = latest_fcb.modified_time;
+      printf("%s\n", latest_fcb.filename);
+    }
+
+
+
+    break;
+  }
+  default:
+    break;  // no such option
+  }
 }
 
 __device__ void fs_gsys(FileSystem *fs, int op, char *s)
 {
+  // find the specific file in the FCB
+  bool file_exists = false;
+  int fcb_idx = 0;
+  FCB target_fcb;
+
+  for (int i = 0; i < fs->FCB_SIZE; i++)
+  {
+    target_fcb = fs->start_of_fcb[i];
+    if (target_fcb.is_on && strmatch(target_fcb.filename, s))
+    {
+      file_exists = true;
+      fcb_idx = i;
+      break;
+    }
+  }
+
 	/* Implement rm operation here */
+  if (op == RM)
+  {
+    // delete the specific file
+    if (!file_exists)
+    {
+      assert(0);  // file not found
+    } else {
+      target_fcb.is_on = false;
+
+      // free the content memory
+      uchar *start = fs->start_of_contents + target_fcb.start_block_idx * fs->STORAGE_BLOCK_SIZE; // the initial byte of the file content
+      
+      printf("fs_delete removing %d bytes of %s\n", target_fcb.size, target_fcb.filename);
+
+      // free the blocks  
+      for (u32 i = 0; i < block_of_bytes(fs, target_fcb.size); i++)
+      {
+        mark_block_unused(fs, target_fcb.start_block_idx+i);
+      }
+      // empty the bytes, replace by 0
+      for (u32 i = 0; i < target_fcb.size; i++)
+      {
+        start[i] = 0;
+      }
+    }
+    
+  } else {
+    printf("no such option in delete\n");
+  }
+  
 }
