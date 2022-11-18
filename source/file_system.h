@@ -19,7 +19,8 @@ typedef uint16_t u16;
 struct FCB {
 	char filename[20];	// maximum size of filename is 20 bytes
 	u32 size;	// the size of the file **in bytes**
-	u32 modified_time;	// the last modified time
+	u16 modified_time;	// the last modified time
+	u16 creation_time;
 	u16 start_block_idx;	// the index of the first of its contiguous blocks
 	bool is_on;
 };
