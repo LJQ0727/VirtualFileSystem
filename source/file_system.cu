@@ -132,7 +132,9 @@ __device__ u32 fs_open(FileSystem *fs, char *s, int op)
           {
             // mark the FCB as on
             fs->start_of_fcb[i].is_on = true;
-            fs->start_of_fcb[i].modified_time = gtime;  // time at creation
+            fs->start_of_fcb[i].modified_time = gtime;
+            fs->start_of_fcb[i].size = 0;  // size at creation
+            fs->start_of_fcb[i].creation_time = gtime;  // time at creation
             // copy the filename
             int idx = 0;
             while (s[idx] != '\0')
@@ -341,7 +343,7 @@ __device__ void fs_gsys(FileSystem *fs, int op)
   switch (op)
   {
   case LS_D:
-    {
+  {
 
     // list the file name and order by modified time of files
 
@@ -375,40 +377,65 @@ __device__ void fs_gsys(FileSystem *fs, int op)
 
 
   case LS_S:
-    {
+  {
       
     printf("===sort by file size===\n");
     // If there are several files with the same size, then first create first print.
 
     
-    u32 last_item_time = (1<<31); // trace the time of last printed file
-    u32 last_item_size = (1<<31);
+    u16 last_item_size = (1<<15);
+    int print_count = 0;
 
-    for (int i = 0; i < file_count; i++)
+    while (print_count < file_count)
     {
-      int latest_modified_time = 0;
-      FCB latest_fcb;
+      int largest_file_size = 0;
       for (int i = 0; i < fs->FCB_ENTRIES; i++)
       {
         FCB fcb = fs->start_of_fcb[i];
-        if (fcb.is_on && (fcb.modified_time > latest_modified_time) && (fcb.modified_time < last_item_time))
+        if (fcb.is_on && (fcb.size >= largest_file_size) && (fcb.size < last_item_size))
         {
-          latest_fcb = fcb;
-          latest_modified_time = fcb.modified_time;
+          largest_file_size = fcb.size;
         }
-        
       }
-      last_item_time = latest_fcb.modified_time;
-      printf("%s\n", latest_fcb.filename);
+
+      // count the number of files with the size of largest_file_size
+      int largest_file_count = 0;
+      for (int i = 0; i < fs->FCB_ENTRIES; i++)
+      {
+        FCB fcb = fs->start_of_fcb[i];
+        if (fcb.is_on && (fcb.size == largest_file_size))
+        {
+          largest_file_count++;
+        }
+      }
+      // printf("largest file size: %d, count: %d\n", largest_file_size, largest_file_count);
+
+      u16 last_item_time;
+      for (int i = 0; i < largest_file_count; i++)
+      {
+        u16 earliest_created_time = (1<<15);
+        FCB earliest_fcb;
+        for (int i = 0; i < fs->FCB_ENTRIES; i++)
+        {
+          FCB fcb = fs->start_of_fcb[i];
+          if (fcb.is_on && (fcb.size == largest_file_size) && (fcb.creation_time < earliest_created_time) && (fcb.creation_time > last_item_time))
+          {
+            earliest_fcb = fcb;
+            earliest_created_time = fcb.creation_time;
+          }
+        }
+        last_item_time = earliest_fcb.creation_time;
+        printf("%s %d\n", earliest_fcb.filename, earliest_fcb.size);
+      }
+      print_count += largest_file_count;
+      
     }
-
-
-
     break;
   }
   default:
     break;  // no such option
-  }
+  } // end of switch
+  
 }
 
 __device__ void fs_gsys(FileSystem *fs, int op, char *s)
