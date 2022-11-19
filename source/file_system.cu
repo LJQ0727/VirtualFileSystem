@@ -383,7 +383,7 @@ __device__ void fs_gsys(FileSystem *fs, int op)
     // If there are several files with the same size, then first create first print.
 
     
-    u16 last_item_size = (1<<15);
+    u16 last_item_size = (1<<15); // the distinct size of the last printed file
     int print_count = 0;
 
     while (print_count < file_count)
@@ -397,6 +397,8 @@ __device__ void fs_gsys(FileSystem *fs, int op)
           largest_file_size = fcb.size;
         }
       }
+      // printf("last item size: %d\n", last_item_size);
+      // printf("largest file size: %d\n", largest_file_size);
 
       // count the number of files with the size of largest_file_size
       int largest_file_count = 0;
@@ -425,6 +427,7 @@ __device__ void fs_gsys(FileSystem *fs, int op)
           }
         }
         last_item_time = earliest_fcb.creation_time;
+        last_item_size = earliest_fcb.size;
         printf("%s %d\n", earliest_fcb.filename, earliest_fcb.size);
       }
       print_count += largest_file_count;
@@ -443,12 +446,12 @@ __device__ void fs_gsys(FileSystem *fs, int op, char *s)
   // find the specific file in the FCB
   bool file_exists = false;
   int fcb_idx = 0;
-  FCB target_fcb;
+  FCB *target_fcb;
 
   for (int i = 0; i < fs->FCB_SIZE; i++)
   {
-    target_fcb = fs->start_of_fcb[i];
-    if (target_fcb.is_on && strmatch(target_fcb.filename, s))
+    target_fcb = &fs->start_of_fcb[i];
+    if (target_fcb->is_on && strmatch(target_fcb->filename, s))
     {
       file_exists = true;
       fcb_idx = i;
@@ -464,20 +467,20 @@ __device__ void fs_gsys(FileSystem *fs, int op, char *s)
     {
       assert(0);  // file not found
     } else {
-      target_fcb.is_on = false;
+      target_fcb->is_on = false;
 
       // free the content memory
-      uchar *start = fs->start_of_contents + target_fcb.start_block_idx * fs->STORAGE_BLOCK_SIZE; // the initial byte of the file content
+      uchar *start = fs->start_of_contents + target_fcb->start_block_idx * fs->STORAGE_BLOCK_SIZE; // the initial byte of the file content
       
-      printf("fs_delete removing %d bytes of %s\n", target_fcb.size, target_fcb.filename);
+      printf("fs_delete removing %d bytes of %s\n", target_fcb->size, target_fcb->filename);
 
       // free the blocks  
-      for (u32 i = 0; i < block_of_bytes(fs, target_fcb.size); i++)
+      for (u32 i = 0; i < block_of_bytes(fs, target_fcb->size); i++)
       {
-        mark_block_unused(fs, target_fcb.start_block_idx+i);
+        mark_block_unused(fs, target_fcb->start_block_idx+i);
       }
       // empty the bytes, replace by 0
-      for (u32 i = 0; i < target_fcb.size; i++)
+      for (u32 i = 0; i < target_fcb->size; i++)
       {
         start[i] = 0;
       }
