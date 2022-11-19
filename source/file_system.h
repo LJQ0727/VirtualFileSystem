@@ -4,6 +4,7 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <inttypes.h>
+#include <iostream>
 
 typedef unsigned char uchar;
 typedef uint32_t u32;
