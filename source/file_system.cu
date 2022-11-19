@@ -26,7 +26,7 @@ __device__ void fs_init(FileSystem *fs, uchar *volume, int SUPERBLOCK_SIZE,
   fs->MAX_FILE_NUM = MAX_FILE_NUM;
   fs->MAX_FILE_SIZE = MAX_FILE_SIZE;
   fs->FILE_BASE_ADDRESS = FILE_BASE_ADDRESS;
-  fs->STORAGE_BLOCK_COUNT = (fs->STORAGE_SIZE-fs->SUPERBLOCK_SIZE-fs->FCB_SIZE) / fs->STORAGE_BLOCK_SIZE;
+  fs->STORAGE_BLOCK_COUNT = (fs->STORAGE_SIZE - fs->SUPERBLOCK_SIZE - (fs->FCB_SIZE * fs->FCB_ENTRIES)) / fs->STORAGE_BLOCK_SIZE;
 
   // init some custom pointers
   fs->start_of_fcb = (FCB*)(volume+SUPERBLOCK_SIZE);
@@ -189,11 +189,14 @@ __device__ void fs_read(FileSystem *fs, uchar *output, u32 size, u32 fp)
 }
 
 __device__ void block_move(FileSystem *fs, int target_block_idx, int source_block_idx) {
+  printf("moving block %d to %d\n", source_block_idx, target_block_idx);
+
   uchar *target_start = fs->start_of_contents + target_block_idx * fs->STORAGE_BLOCK_SIZE;
   uchar *source_start = fs->start_of_contents + source_block_idx * fs->STORAGE_BLOCK_SIZE;
   for (int i = 0; i < fs->STORAGE_BLOCK_SIZE; i++)
   {
     target_start[i] = source_start[i];
+    source_start[i] = 0;
   }
   mark_block_unused(fs, source_block_idx);
   mark_block_used(fs, target_block_idx);
@@ -229,7 +232,6 @@ __device__ u16 alloc_new_blocks(FileSystem *fs, int target_block_size) {
   }
 
   printf("No enough contiguous blocks, have to manage the fragmentation\n");
-  assert(0);
   // not enough contiguous space, have to manage the fragmentation
   // compation algorithm
   int first_unused_block_idx = 0;
@@ -254,9 +256,26 @@ __device__ u16 alloc_new_blocks(FileSystem *fs, int target_block_size) {
       }
       current_block_idx++;
     }
-    
+
+    if (current_block_idx >= fs->STORAGE_BLOCK_COUNT) {
+      // no more used blocks
+      break;
+    }
+
     // swap the two blocks
     block_move(fs, first_unused_block_idx, current_block_idx);
+    // reassign the associated fcbs of the moved block
+    for (int i = 0; i < fs->FCB_ENTRIES; i++)
+    {
+      FCB *fcb = fs->start_of_fcb + i;
+      if (fcb->start_block_idx == current_block_idx)
+      {
+        printf("reassigning fcb block %d to %d\n", fcb->start_block_idx, first_unused_block_idx);
+        fcb->start_block_idx = first_unused_block_idx;
+        break;
+      }
+    }
+    
     first_unused_block_idx++;
     current_block_idx++;
     if (current_block_idx >= fs->STORAGE_BLOCK_COUNT) {
@@ -264,8 +283,34 @@ __device__ u16 alloc_new_blocks(FileSystem *fs, int target_block_size) {
       break;
     }
   }
-  
-  // return alloc_new_blocks(fs, target_block_size);
+
+  // reallocate
+  printf("reallocating %d blocks in alloc_new_blocks\n", target_block_size);
+  current_block_idx = 0;
+  block_count = 0;
+  while (current_block_idx < fs->STORAGE_BLOCK_COUNT)
+  {
+    if (check_block_used(fs, current_block_idx)) {
+      // this block is used, reset the counter
+      block_count = 0;
+    } else {
+      block_count++;
+      if (block_count == target_block_size) {
+        // found enough contiguous blocks
+        printf("contiguous block found, returning block %d, span%d\n", current_block_idx - target_block_size + 1, target_block_size);
+        // mark blocks as used
+        for (int i = 0; i < target_block_size; i++)
+        {
+          mark_block_used(fs, current_block_idx - target_block_size + 1 + i);
+        }
+        
+        return current_block_idx - target_block_size + 1;
+      }
+    }
+    current_block_idx++;
+  }
+  assert(0);  // fail to reallocate
+
 }
 
 __device__ u32 fs_write(FileSystem *fs, uchar* input, u32 size, u32 fp)
@@ -280,9 +325,9 @@ __device__ u32 fs_write(FileSystem *fs, uchar* input, u32 size, u32 fp)
   u16 start_block_idx = fcb->start_block_idx;
   
   printf("fs_write %d bytes into %s\n", size, fcb->filename);
-  printf("start_block_idx %d\n", start_block_idx);
-  printf("fcb->size %d\n", fcb->size);
-  printf("check used: %d\n", check_block_used(fs, start_block_idx));
+  // printf("start_block_idx %d\n", start_block_idx);
+  // printf("fcb->size %d\n", fcb->size);
+  // printf("check used: %d\n", check_block_used(fs, start_block_idx));
 
   // if the file already exists, we have to free the blocks 
   for (u32 i = 0; i < block_of_bytes(fs, fcb->size); i++)
@@ -326,11 +371,23 @@ __device__ u32 fs_write(FileSystem *fs, uchar* input, u32 size, u32 fp)
     return size;
     
   } else {
-    printf("cannot directly write, finding new space\n");
     // cannot directly write, need to fix fragmentation, then directly write
     fcb->start_block_idx = alloc_new_blocks(fs, block_of_bytes(fs, size));
+    printf("cannot directly write, resetting start_block_idx to %d\n", fcb->start_block_idx);
+    // perform write
+    start = fs->start_of_contents + fcb->start_block_idx * fs->STORAGE_BLOCK_SIZE; // the initial byte of the file content
+    for (u32 i = 0; i < size; i++)
+    {
+      start[i] = input[i];
+    }
+    for (u32 i = 0; i < block_of_bytes(fs, size); i++)
+    {
+      mark_block_used(fs, fcb->start_block_idx+i);
+    }
+
     fcb->size = size;
     fcb->modified_time = gtime;
+    return size;
   }
   
   
@@ -502,6 +559,7 @@ __device__ void fs_gsys(FileSystem *fs, int op, char *s)
     
   } else {
     printf("no such option in delete\n");
+    assert(0);
   }
   
 }
