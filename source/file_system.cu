@@ -397,6 +397,8 @@ __device__ void fs_gsys(FileSystem *fs, int op)
           largest_file_size = fcb.size;
         }
       }
+      last_item_size = largest_file_size;
+
       // printf("last item size: %d\n", last_item_size);
       // printf("largest file size: %d\n", largest_file_size);
 
@@ -412,13 +414,14 @@ __device__ void fs_gsys(FileSystem *fs, int op)
       }
       // printf("largest file size: %d, count: %d\n", largest_file_size, largest_file_count);
 
-      u16 last_item_time;
+      u16 last_item_time = 0;
       for (int i = 0; i < largest_file_count; i++)
       {
         u16 earliest_created_time = (1<<15);
         FCB earliest_fcb;
         for (int i = 0; i < fs->FCB_ENTRIES; i++)
         {
+          // find the file with the file size of largest_file_size and the earliest created time among all unprinted items
           FCB fcb = fs->start_of_fcb[i];
           if (fcb.is_on && (fcb.size == largest_file_size) && (fcb.creation_time < earliest_created_time) && (fcb.creation_time > last_item_time))
           {
@@ -427,7 +430,6 @@ __device__ void fs_gsys(FileSystem *fs, int op)
           }
         }
         last_item_time = earliest_fcb.creation_time;
-        last_item_size = earliest_fcb.size;
         printf("%s %d\n", earliest_fcb.filename, earliest_fcb.size);
       }
       print_count += largest_file_count;
