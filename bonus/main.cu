@@ -30,6 +30,9 @@ __device__ __managed__ uchar output[MAX_FILE_SIZE];
 // volume (disk storage)
 __device__ __managed__ uchar volume[VOLUME_SIZE];
 
+// expand the FCB space in bonus
+// this contains additional fcb information with the same index as the original fcb
+__device__ __managed__ FCB_additional fcb_additional[FCB_ENTRIES];
 
 
 __device__ void user_program(FileSystem *fs, uchar *input, uchar *output);
@@ -40,7 +43,7 @@ __global__ void mykernel(uchar *input, uchar *output) {
   FileSystem fs;
   fs_init(&fs, volume, SUPERBLOCK_SIZE, FCB_SIZE, FCB_ENTRIES, 
 			VOLUME_SIZE,STORAGE_BLOCK_SIZE, MAX_FILENAME_SIZE, 
-			MAX_FILE_NUM, MAX_FILE_SIZE, FILE_BASE_ADDRESS);
+			MAX_FILE_NUM, MAX_FILE_SIZE, FILE_BASE_ADDRESS, fcb_additional);
 
   // user program the access pattern for testing file operations
   user_program(&fs, input, output);
