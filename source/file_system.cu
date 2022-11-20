@@ -425,9 +425,9 @@ __device__ void fs_gsys(FileSystem *fs, int op)
     {
       int latest_modified_time = 0;
       FCB latest_fcb;
-      for (int i = 0; i < fs->FCB_ENTRIES; i++)
+      for (int j = 0; j < fs->FCB_ENTRIES; j++)
       {
-        FCB fcb = fs->start_of_fcb[i];
+        FCB fcb = fs->start_of_fcb[j];
         if (fcb.is_on && (fcb.modified_time > latest_modified_time) && (fcb.modified_time < last_item_time))
         {
           latest_fcb = fcb;

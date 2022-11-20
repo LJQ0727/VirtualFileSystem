@@ -335,10 +335,12 @@ __device__ u16 alloc_new_blocks(FileSystem *fs, int target_block_size) {
 }
 
 __device__ FCB_additional * get_fcb_additional(FileSystem *fs, int fcb_idx) {
+  // get the additional fcb information pointer
   return fs->start_of_fcb_additional + fcb_idx;
 }
 
 __device__ uchar * get_content(FileSystem *fs, int block_idx, int byte_offset) {
+  // given a block index, get the pointer to the content of a file (or directory)
   return fs->start_of_contents + block_idx * fs->STORAGE_BLOCK_SIZE + byte_offset;
 }
 
@@ -424,12 +426,39 @@ __device__ u32 fs_write(FileSystem *fs, uchar* input, u32 size, u32 fp)
   
 }
 
+__device__ void pwd_helper(FileSystem *fs, int fcb_idx) {
+  // to print cwd, this should be called `pwd_helper(fs, fs->cwd)`
+
+  // recursively print the path of the current directory
+  FCB *fcb = fs->start_of_fcb + fcb_idx;
+  FCB_additional *fcb_additional = get_fcb_additional(fs, fcb_idx);
+  if (fcb_additional->parent_dir_idx == -1) {
+    // root directory
+    return;
+  }
+  pwd_helper(fs, fcb_additional->parent_dir_idx);
+  printf("/%s", fcb->filename);
+}
+
+__device__ int get_fcb_by_name(FileSystem *fs, char *name) {
+  // get the fcb index by name
+  for (int i = 0; i < fs->FCB_ENTRIES; i++)
+  {
+    FCB *fcb = fs->start_of_fcb + i;
+    if (fcb->is_on && strmatch(fcb->filename, name)) {
+      return i;
+    }
+  }
+  assert(0);  // no such named fcb
+  return -1;
+}
+
 // ls_d, ls_s, cd_p, pwd goes here
 __device__ void fs_gsys(FileSystem *fs, int op)
 {
   FCB cwd_fcb = fs->start_of_fcb[fs->cwd];
   uchar *cwd_content = get_content(fs, cwd_fcb.start_block_idx, 0);
-  // count number of files and subdirectories in the current directory
+  // count number of files and subdirectories **in the current directory**
   int file_count = 0;
   for (int i = 0; i < cwd_fcb.size; i++)
   {
@@ -439,11 +468,17 @@ __device__ void fs_gsys(FileSystem *fs, int op)
     }
   }
   
-  // printf("number of files: %d\n", file_count);
+  // printf("number of files or dirs: %d\n", file_count);
 
-	/* Implement LS_D and LS_S operation here */
+	/* Implement ls_d, ls_s, cd_p, pwd operation here */
   switch (op)
   {
+  case PWD:
+  {
+    pwd_helper(fs, fs->cwd);
+    printf("\n");
+    break;
+  }
   case LS_D:
   {
 
@@ -451,25 +486,52 @@ __device__ void fs_gsys(FileSystem *fs, int op)
 
     printf("===sort by modified time===\n");
 
-    
     int last_item_time = (1<<15); // trace the time of last printed file
     // print the most recent modified file before the last item
-    for (int i = 0; i < file_count; i++)
+    for (int i = 0; i < file_count; i++)  // print each file once
     {
       int latest_modified_time = 0;
       FCB latest_fcb;
-      for (int i = 0; i < fs->FCB_ENTRIES; i++)
+      int latest_fcb_idx = -1;
+
+      // tokenize the file name in the cwd content
+      uchar current_byte;
+      int token_start_idx = 0;
+
+      
+      // find the most recently modified file or subdir
+      for (int j = 0; j < cwd_fcb.size; j++)
       {
-        FCB fcb = fs->start_of_fcb[i];
-        if (fcb.is_on && (fcb.modified_time > latest_modified_time) && (fcb.modified_time < last_item_time))
+        current_byte = *get_content(fs, cwd_fcb.start_block_idx, j);
+        if (current_byte == '\0')
         {
-          latest_fcb = fcb;
-          latest_modified_time = fcb.modified_time;
+          // get this full token
+          char token[21];
+          my_memcpy(token, (char*)get_content(fs, cwd_fcb.start_block_idx, token_start_idx), 21);
+          // get the fcb
+          int fcb_idx = get_fcb_by_name(fs, token);
+          FCB *fcb = fs->start_of_fcb + fcb_idx;
+          if (fcb->is_on && (fcb->modified_time > latest_modified_time) && (fcb->modified_time < last_item_time))
+          {
+            latest_fcb = *fcb;
+            latest_modified_time = fcb->modified_time;
+            latest_fcb_idx = fcb_idx;
+          }
+          
+          token_start_idx = j+1;
         }
         
       }
+
+      FCB_additional *fcb_additional = get_fcb_additional(fs, latest_fcb_idx);
       last_item_time = latest_fcb.modified_time;
-      printf("%s\n", latest_fcb.filename);
+      if (fcb_additional->is_dir)
+      {
+        printf("%s d\n", latest_fcb.filename);
+      } else {
+        printf("%s\n", latest_fcb.filename);
+      }
+      
       // printf("%s   time%d\n", latest_fcb.filename, last_item_time);
     }
     
@@ -491,13 +553,32 @@ __device__ void fs_gsys(FileSystem *fs, int op)
     while (print_count < file_count)
     {
       int largest_file_size = 0;
-      for (int i = 0; i < fs->FCB_ENTRIES; i++)
+
+      // tokenize the file name in the cwd content
+      uchar current_byte;
+      int token_start_idx = 0;
+
+      
+      // find the largest file or subdir
+      for (int j = 0; j < cwd_fcb.size; j++)
       {
-        FCB fcb = fs->start_of_fcb[i];
-        if (fcb.is_on && (fcb.size >= largest_file_size) && (fcb.size < last_item_size))
+        current_byte = *get_content(fs, cwd_fcb.start_block_idx, j);
+        if (current_byte == '\0')
         {
-          largest_file_size = fcb.size;
+          // get this full token
+          char token[21];
+          my_memcpy(token, (char*)get_content(fs, cwd_fcb.start_block_idx, token_start_idx), 21);
+          // get the fcb
+          int fcb_idx = get_fcb_by_name(fs, token);
+          FCB *fcb = fs->start_of_fcb + fcb_idx;
+          if (fcb->is_on && (fcb->size > largest_file_size) && (fcb->modified_time < last_item_size))
+          {
+            largest_file_size = fcb->size;
+          }
+          
+          token_start_idx = j+1;
         }
+        
       }
       last_item_size = largest_file_size;
 
@@ -505,37 +586,71 @@ __device__ void fs_gsys(FileSystem *fs, int op)
       // printf("largest file size: %d\n", largest_file_size);
 
       // count the number of files with the size of largest_file_size
+      token_start_idx = 0;
       int largest_file_count = 0;
-      for (int i = 0; i < fs->FCB_ENTRIES; i++)
+      // find the file or subdir with the same size
+      for (int j = 0; j < cwd_fcb.size; j++)
       {
-        FCB fcb = fs->start_of_fcb[i];
-        if (fcb.is_on && (fcb.size == largest_file_size))
+        current_byte = *get_content(fs, cwd_fcb.start_block_idx, j);
+        if (current_byte == '\0')
         {
-          largest_file_count++;
+          // get this full token
+          char token[21];
+          my_memcpy(token, (char*)get_content(fs, cwd_fcb.start_block_idx, token_start_idx), 21);
+          // get the fcb
+          int fcb_idx = get_fcb_by_name(fs, token);
+          FCB *fcb = fs->start_of_fcb + fcb_idx;
+          if (fcb->is_on && (fcb->size == largest_file_size))
+          {
+            largest_file_count++;
+          }
+          
+          token_start_idx = j+1;
         }
+        
       }
       // printf("largest file size: %d, count: %d\n", largest_file_size, largest_file_count);
 
       u16 last_item_time = 0;
       for (int i = 0; i < largest_file_count; i++)
       {
+        // find the file with the file size of largest_file_size and the earliest created time among all unprinted items
+
         u16 earliest_created_time = (1<<15);
         FCB earliest_fcb;
-        for (int i = 0; i < fs->FCB_ENTRIES; i++)
+        int earliest_fcb_idx;
+
+        for (int j = 0; j < cwd_fcb.size; j++)
         {
-          // find the file with the file size of largest_file_size and the earliest created time among all unprinted items
-          FCB fcb = fs->start_of_fcb[i];
-          if (fcb.is_on && (fcb.size == largest_file_size) && (fcb.creation_time < earliest_created_time) && (fcb.creation_time > last_item_time))
+          current_byte = *get_content(fs, cwd_fcb.start_block_idx, j);
+          if (current_byte == '\0')
           {
-            earliest_fcb = fcb;
-            earliest_created_time = fcb.creation_time;
+            // get this full token
+            char token[21];
+            my_memcpy(token, (char*)get_content(fs, cwd_fcb.start_block_idx, token_start_idx), 21);
+            // get the fcb
+            int fcb_idx = get_fcb_by_name(fs, token);
+            FCB *fcb = fs->start_of_fcb + fcb_idx;
+            if (fcb->is_on && (fcb->size == largest_file_size) && (fcb->creation_time < earliest_created_time) && (fcb->creation_time > last_item_time))
+            {
+              earliest_fcb = *fcb;
+              earliest_created_time = fcb->creation_time;
+              earliest_fcb_idx = fcb_idx;
+            }
+            
+            token_start_idx = j+1;
           }
         }
         last_item_time = earliest_fcb.creation_time;
-        printf("%s %d\n", earliest_fcb.filename, earliest_fcb.size);
+        FCB_additional * additional = get_fcb_additional(fs, earliest_fcb_idx);
+        if (additional->is_dir)
+        {
+          printf("%s %d d\n", earliest_fcb.filename, earliest_fcb.size);
+        } else {
+          printf("%s %d\n", earliest_fcb.filename, earliest_fcb.size);
+        }
       }
       print_count += largest_file_count;
-      
     }
     break;
   }
@@ -614,9 +729,9 @@ __device__ void fs_gsys(FileSystem *fs, int op, char *s)
 
           target_additional_fcb->is_dir = true;
           target_additional_fcb->number_of_files = 0;
-          target_additional_fcb->parent_dir_idx = fs->cwd;
+          target_additional_fcb->parent_dir_idx = fs->cwd;  // set the parent directory to the current working directory
 
-          // copy the dirname
+          // copy the dirname as filename
           int idx = 0;
           while (s[idx] != '\0')
           {
@@ -658,7 +773,7 @@ __device__ void fs_gsys(FileSystem *fs, int op, char *s)
         if (current_byte == '\0')
         {
           // get this full token
-          char token[i-token_start_idx+1];
+          char token[21];
           my_memcpy(token, (char*)get_content(fs, target_fcb->start_block_idx, token_start_idx), i-token_start_idx+1);
           fs_gsys(fs, RM_RF, token);  // recursive call to remove subdir or subfile
           token_start_idx = i+1;
