@@ -519,7 +519,7 @@ __device__ void fs_gsys(FileSystem *fs, int op, char *s)
   int fcb_idx = 0;
   FCB *target_fcb;
 
-  for (int i = 0; i < fs->FCB_SIZE; i++)
+  for (int i = 0; i < fs->FCB_ENTRIES; i++)
   {
     target_fcb = &fs->start_of_fcb[i];
     if (target_fcb->is_on && strmatch(target_fcb->filename, s))
