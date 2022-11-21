@@ -12,7 +12,7 @@ __device__ void fs_init(FileSystem *fs, uchar *volume, int SUPERBLOCK_SIZE,
 							int FCB_SIZE, int FCB_ENTRIES, int VOLUME_SIZE,
 							int STORAGE_BLOCK_SIZE, int MAX_FILENAME_SIZE, 
 							int MAX_FILE_NUM, int MAX_FILE_SIZE, int FILE_BASE_ADDRESS,
-              FCB_additional *start_of_fcb_additional)
+              FCB *start_of_fcb)
 {
   // init variables
   fs->volume = volume;
@@ -30,21 +30,19 @@ __device__ void fs_init(FileSystem *fs, uchar *volume, int SUPERBLOCK_SIZE,
   fs->STORAGE_BLOCK_COUNT = (fs->STORAGE_SIZE - fs->SUPERBLOCK_SIZE - (fs->FCB_SIZE * fs->FCB_ENTRIES)) / fs->STORAGE_BLOCK_SIZE;
 
   // init some custom pointers
-  fs->start_of_fcb = (FCB*)(volume+SUPERBLOCK_SIZE);
+  fs->start_of_fcb = start_of_fcb;
   fs->start_of_superblock = volume;
   fs->start_of_contents = volume + FILE_BASE_ADDRESS;
-  fs->start_of_fcb_additional = start_of_fcb_additional;
   fs->cwd = -1;   // the root directory will have parent dir index -1
 
   // initialize volume
   for (int i = 0; i < VOLUME_SIZE; i++)
     volume[i] = 0;
 
-  // initialize fcb_additional
+  // initialize fcb
   for (int i = 0; i < FCB_ENTRIES; i++) {
-    start_of_fcb_additional[i].is_dir = false;
-    start_of_fcb_additional[i].number_of_files = 0;
-    start_of_fcb_additional[i].parent_dir_idx = -1;
+    fs->start_of_fcb[i].is_dir = false;
+    fs->start_of_fcb[i].parent_dir_idx = -1;
   }
 
   // make root directory and cd to it
@@ -52,7 +50,36 @@ __device__ void fs_init(FileSystem *fs, uchar *volume, int SUPERBLOCK_SIZE,
   fs_gsys(fs, CD, "/\0");
     
 }
+__device__ bool strmatch(char *start1, char* start2);
 
+__device__ uchar * get_content(FileSystem *fs, int block_idx, int byte_offset) {
+  // given a block index, get the pointer to the content of a file (or directory)
+  return fs->start_of_contents + block_idx * fs->STORAGE_BLOCK_SIZE + byte_offset;
+}
+
+__device__ int get_fcb_by_name(FileSystem *fs, char *name) {
+  // get the fcb index by name
+  for (int i = 0; i < fs->FCB_ENTRIES; i++)
+  {
+    FCB *fcb = fs->start_of_fcb + i;
+    if (fcb->is_on && strmatch(fcb->filename, name)) {
+      return i;
+    }
+  }
+  assert(0);  // no such named fcb
+  return -1;
+}
+
+__device__ void set_gtime_recursive(FileSystem *fs, int fcb_idx, u32 gtime) {
+  // recursively set the gtime of the fcb and propagate this change to all parent dirs
+  FCB *fcb = fs->start_of_fcb + fcb_idx;
+  fcb->modified_time = gtime;
+  if (fcb->parent_dir_idx != -1) {
+    set_gtime_recursive(fs, fcb->dir_idx, gtime);
+    printf("modified gtime of %s: %d isdir: %d\n", fcb->filename ,gtime, fcb->is_dir);
+  }
+}
+  
 
 __device__ bool strmatch(char *start1, char* start2) {
   // match two strings, return true if they are the same
@@ -105,6 +132,41 @@ __device__ void my_memcpy(char *destination, char *source, int size) {
   
 }
 
+__device__ int my_strlen(char *s) {
+  // find the length of a string, **including '\0'**
+  int idx = 0;
+  while (s[idx] != '\0')
+  {
+    idx++;
+  }
+  return idx+1;
+}
+
+__device__ bool file_exists_in_curr_dir(FileSystem *fs, char* s) {
+  bool file_exists = false;
+  // find if the specific file already exists in the FCB
+  if (s[0] == '/')
+  {
+    return; // abs path not implemented
+  } else {
+    // find the file in the current directory
+    for (int i = 0; i < fs->start_of_fcb[fs->cwd].size - my_strlen(s); i++)
+    {
+      if (strmatch((char*)get_content(fs, fs->start_of_fcb[fs->cwd].start_block_idx, i), s))
+      {
+        if (i == 0 || (*get_content(fs, fs->start_of_fcb[fs->cwd].start_block_idx, i-1) == '\0'))
+        {
+          // found the file
+          file_exists = true;
+          break;
+        }
+      }
+    }
+  }
+  return file_exists;
+  printf("file_exists for %s in current dir is %d\n", s, file_exists);
+
+}
 
 __device__ u32 fs_open(FileSystem *fs, char *s, int op)
 {
@@ -113,27 +175,15 @@ __device__ u32 fs_open(FileSystem *fs, char *s, int op)
   // op: open mode, G_READ or G_WRITE
   // returns the file pointer, which is the index of the FCB entry
   gtime++;
+  bool file_exists = file_exists_in_curr_dir(fs, s);
 
-  // find if the specific file already exists in the FCB
-  bool file_exists = false;
-  int fcb_idx = 0;
-  for (int i = 0; i < fs->FCB_ENTRIES; i++)
-  {
-    FCB target_fcb = fs->start_of_fcb[i];
-    if (target_fcb.is_on && strmatch(target_fcb.filename, s))
-    {
-      file_exists = true;
-      fcb_idx = i;
-      break;
-    }
-  }
   
   switch (op)
   {
     case G_READ:
       // find file with the filename among all files, returns the index of the FCB
       if (file_exists) {
-        return fcb_idx;
+        return get_fcb_by_name(fs, s);
       }
       assert(0);  // file not found
       break;
@@ -142,6 +192,8 @@ __device__ u32 fs_open(FileSystem *fs, char *s, int op)
       if (file_exists) {
         // have to empty the file in the next write operation
         // in which we will check the `size` attribute, if it's not 0, we will free the blocks
+        int fcb_idx = get_fcb_by_name(fs, s);
+        set_gtime_recursive(fs, fcb_idx, gtime);
         printf("fs_open file %s exists, index %d\n", s, fcb_idx);
         return fcb_idx;
       } else {  // file not exists
@@ -151,12 +203,16 @@ __device__ u32 fs_open(FileSystem *fs, char *s, int op)
           FCB target_fcb = fs->start_of_fcb[i];
           if (!target_fcb.is_on)
           {
-            // mark the FCB as on
+            // mark the FCB as on and set its attrs
             fs->start_of_fcb[i].is_on = true;
             fs->start_of_fcb[i].modified_time = gtime;
             fs->start_of_fcb[i].size = 0;  // size at creation
             fs->start_of_fcb[i].creation_time = gtime;  // time at creation
             fs->start_of_fcb[i].start_block_idx = 0;
+            fs->start_of_fcb[i].is_dir = false;
+            fs->start_of_fcb[i].parent_dir_idx = fs->start_of_fcb[fs->cwd].parent_dir_idx;
+            fs->start_of_fcb[i].dir_idx = fs->cwd;
+
             // copy the filename
             int idx = 0;
             while (s[idx] != '\0')
@@ -166,9 +222,19 @@ __device__ u32 fs_open(FileSystem *fs, char *s, int op)
             }
             fs->start_of_fcb[i].filename[idx] = '\0';
 
-            fs->start_of_fcb[i].size = 0; // no content for this file for now
+
+            // add the filename to the directory file content
+            uchar * cwd_content = get_content(fs, fs->start_of_fcb[fs->cwd].start_block_idx, 0);
+            int cwd_curr_size = fs->start_of_fcb[fs->cwd].size;
+            uchar * input = new uchar[cwd_curr_size + my_strlen(s)];
+
+            my_memcpy((char*)input, (char*)cwd_content, cwd_curr_size);
+            my_memcpy((char*)(input+cwd_curr_size), (char*)s, my_strlen(s));
+            
+            fs_write(fs, input, cwd_curr_size + my_strlen(s), fs->cwd);
             
             printf("fs_open new fcb %s, index %d\n", s, i);
+            set_gtime_recursive(fs, i, gtime);
             return i;
           }
         }
@@ -179,7 +245,6 @@ __device__ u32 fs_open(FileSystem *fs, char *s, int op)
     default:
       assert(0);  // no such option
       break;
-    return fcb_idx;
   }
 }
 
@@ -334,22 +399,14 @@ __device__ u16 alloc_new_blocks(FileSystem *fs, int target_block_size) {
 
 }
 
-__device__ FCB_additional * get_fcb_additional(FileSystem *fs, int fcb_idx) {
-  // get the additional fcb information pointer
-  return fs->start_of_fcb_additional + fcb_idx;
-}
 
-__device__ uchar * get_content(FileSystem *fs, int block_idx, int byte_offset) {
-  // given a block index, get the pointer to the content of a file (or directory)
-  return fs->start_of_contents + block_idx * fs->STORAGE_BLOCK_SIZE + byte_offset;
-}
 
 __device__ u32 fs_write(FileSystem *fs, uchar* input, u32 size, u32 fp)
 {
-	/* Implement write operation here */
+	// write bytes to the file
   // fp the index of the FCB
   gtime++;
-
+  set_gtime_recursive(fs, fp, gtime);
 
   uchar *start = fs->start_of_contents + fs->start_of_fcb[fp].start_block_idx * fs->STORAGE_BLOCK_SIZE; // the initial byte of the file content
   FCB *fcb = fs->start_of_fcb+fp;   // the fcb for this file
@@ -396,8 +453,6 @@ __device__ u32 fs_write(FileSystem *fs, uchar* input, u32 size, u32 fp)
       mark_block_used(fs, start_block_idx+i);
     }
     fcb->size = size;
-    fcb->modified_time = gtime;
-    // printf("modified time of %s: %d\n", fcb->filename ,gtime);
     
     return size;
     
@@ -417,13 +472,8 @@ __device__ u32 fs_write(FileSystem *fs, uchar* input, u32 size, u32 fp)
     }
 
     fcb->size = size;
-    fcb->modified_time = gtime;
     return size;
   }
-  
-  
-  
-  
 }
 
 __device__ void pwd_helper(FileSystem *fs, int fcb_idx) {
@@ -431,34 +481,21 @@ __device__ void pwd_helper(FileSystem *fs, int fcb_idx) {
 
   // recursively print the path of the current directory
   FCB *fcb = fs->start_of_fcb + fcb_idx;
-  FCB_additional *fcb_additional = get_fcb_additional(fs, fcb_idx);
-  if (fcb_additional->parent_dir_idx == -1) {
+  if (fcb->parent_dir_idx == -1) {
     // root directory
     return;
   }
-  pwd_helper(fs, fcb_additional->parent_dir_idx);
+  pwd_helper(fs, fcb->parent_dir_idx);
   printf("/%s", fcb->filename);
 }
 
-__device__ int get_fcb_by_name(FileSystem *fs, char *name) {
-  // get the fcb index by name
-  for (int i = 0; i < fs->FCB_ENTRIES; i++)
-  {
-    FCB *fcb = fs->start_of_fcb + i;
-    if (fcb->is_on && strmatch(fcb->filename, name)) {
-      return i;
-    }
-  }
-  assert(0);  // no such named fcb
-  return -1;
-}
 
 // ls_d, ls_s, cd_p, pwd goes here
 __device__ void fs_gsys(FileSystem *fs, int op)
 {
   FCB cwd_fcb = fs->start_of_fcb[fs->cwd];
   uchar *cwd_content = get_content(fs, cwd_fcb.start_block_idx, 0);
-  // count number of files and subdirectories **in the current directory**
+  // get the number of files and subdirectories **in the current directory**
   int file_count = 0;
   for (int i = 0; i < cwd_fcb.size; i++)
   {
@@ -475,9 +512,17 @@ __device__ void fs_gsys(FileSystem *fs, int op)
   {
   case PWD:
   {
-    pwd_helper(fs, fs->cwd);
-    printf("\n");
-    break;
+    printf("printing pwd\n");
+    // printf("fs.cwd: %d\n", fs->cwd);
+    if (cwd_fcb.parent_dir_idx == -1) {
+      // root directory
+      printf("/\n");
+      break;
+    } else {
+      pwd_helper(fs, fs->cwd);
+      printf("\n");
+      break;
+    }
   }
   case LS_D:
   {
@@ -498,7 +543,6 @@ __device__ void fs_gsys(FileSystem *fs, int op)
       uchar current_byte;
       int token_start_idx = 0;
 
-      
       // find the most recently modified file or subdir
       for (int j = 0; j < cwd_fcb.size; j++)
       {
@@ -523,9 +567,8 @@ __device__ void fs_gsys(FileSystem *fs, int op)
         
       }
 
-      FCB_additional *fcb_additional = get_fcb_additional(fs, latest_fcb_idx);
       last_item_time = latest_fcb.modified_time;
-      if (fcb_additional->is_dir)
+      if (latest_fcb.is_dir)
       {
         printf("%s d\n", latest_fcb.filename);
       } else {
@@ -534,11 +577,8 @@ __device__ void fs_gsys(FileSystem *fs, int op)
       
       // printf("%s   time%d\n", latest_fcb.filename, last_item_time);
     }
-    
-
     break;
   }
-
 
   case LS_S:
   {
@@ -552,14 +592,13 @@ __device__ void fs_gsys(FileSystem *fs, int op)
 
     while (print_count < file_count)
     {
-      int largest_file_size = 0;
 
       // tokenize the file name in the cwd content
       uchar current_byte;
       int token_start_idx = 0;
 
-      
-      // find the largest file or subdir
+      int largest_file_size = 0;
+      // get the largest file size less than `last_item_size`
       for (int j = 0; j < cwd_fcb.size; j++)
       {
         current_byte = *get_content(fs, cwd_fcb.start_block_idx, j);
@@ -582,13 +621,11 @@ __device__ void fs_gsys(FileSystem *fs, int op)
       }
       last_item_size = largest_file_size;
 
-      // printf("last item size: %d\n", last_item_size);
       // printf("largest file size: %d\n", largest_file_size);
 
       // count the number of files with the size of largest_file_size
       token_start_idx = 0;
       int largest_file_count = 0;
-      // find the file or subdir with the same size
       for (int j = 0; j < cwd_fcb.size; j++)
       {
         current_byte = *get_content(fs, cwd_fcb.start_block_idx, j);
@@ -604,13 +641,13 @@ __device__ void fs_gsys(FileSystem *fs, int op)
           {
             largest_file_count++;
           }
-          
           token_start_idx = j+1;
         }
         
       }
-      // printf("largest file size: %d, count: %d\n", largest_file_size, largest_file_count);
+      printf("largest file size: %d, count: %d\n", largest_file_size, largest_file_count);
 
+      // now we have the size, find the file or subdir with the same size and print by creation time order
       u16 last_item_time = 0;
       for (int i = 0; i < largest_file_count; i++)
       {
@@ -642,8 +679,7 @@ __device__ void fs_gsys(FileSystem *fs, int op)
           }
         }
         last_item_time = earliest_fcb.creation_time;
-        FCB_additional * additional = get_fcb_additional(fs, earliest_fcb_idx);
-        if (additional->is_dir)
+        if (earliest_fcb.is_dir)
         {
           printf("%s %d d\n", earliest_fcb.filename, earliest_fcb.size);
         } else {
@@ -665,20 +701,14 @@ __device__ void fs_gsys(FileSystem *fs, int op)
 __device__ void fs_gsys(FileSystem *fs, int op, char *s)
 {
   // find the specific file in the FCB
-  bool file_exists = false;
+  bool file_exists = file_exists_in_curr_dir(fs, s);
   int fcb_idx = 0;
-  FCB *target_fcb;
-
-  for (int i = 0; i < fs->FCB_SIZE; i++)
+  if (file_exists)
   {
-    target_fcb = &fs->start_of_fcb[i];
-    if (target_fcb->is_on && strmatch(target_fcb->filename, s))
-    {
-      file_exists = true;
-      fcb_idx = i;
-      break;
-    }
+    fcb_idx = get_fcb_by_name(fs, s);
   }
+  FCB *target_fcb = fs->start_of_fcb + fcb_idx;
+  
 
 	/* Implement rm operation here */
   if (op == RM)
@@ -714,22 +744,21 @@ __device__ void fs_gsys(FileSystem *fs, int op, char *s)
       assert(0);  // directory already exists
     } else {
       // find an empty FCB
-      for (int i = 0; i < fs->FCB_SIZE; i++)
+      for (int i = 0; i < fs->FCB_ENTRIES; i++)
       {
         target_fcb = &fs->start_of_fcb[i];
         if (!target_fcb->is_on)
         {
           // create a new empty directory in this file
-          FCB_additional * target_additional_fcb = get_fcb_additional(fs, i);
           target_fcb->is_on = true;
           target_fcb->size = 0;
           target_fcb->start_block_idx = 0;
           target_fcb->creation_time = gtime;
           target_fcb->modified_time = gtime;
 
-          target_additional_fcb->is_dir = true;
-          target_additional_fcb->number_of_files = 0;
-          target_additional_fcb->parent_dir_idx = fs->cwd;  // set the parent directory to the current working directory
+          target_fcb->is_dir = true;
+          target_fcb->parent_dir_idx = fs->cwd;  // set the parent directory to the current working directory
+          target_fcb->dir_idx = i;
 
           // copy the dirname as filename
           int idx = 0;
@@ -739,6 +768,8 @@ __device__ void fs_gsys(FileSystem *fs, int op, char *s)
             idx++;
           }
           fs->start_of_fcb[i].filename[idx] = '\0';
+
+          set_gtime_recursive(fs, i, gtime);
 
           printf("create new directory fcb %s, index %d\n", s, i);
           break;
@@ -754,10 +785,9 @@ __device__ void fs_gsys(FileSystem *fs, int op, char *s)
     assert(file_exists);  // if assertion failed, the directory or file does not exist
 
     // locate the additional fcb
-    FCB_additional * additional_fcb = get_fcb_additional(fs, fcb_idx);
-    if (!additional_fcb->is_dir)
+    if (!target_fcb->is_dir)
     {
-      // remove that file only
+      // remove that regular file only
       fs_gsys(fs, RM, s);
     } else {
       // recursively remove the directory, its subdirectories and files
