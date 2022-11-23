@@ -566,7 +566,7 @@ __device__ void fs_gsys(FileSystem *fs, int op)
     }
   }
   
-  // printf("number of files or dirs: %d\n", file_count);
+  printf("number of files or dirs: %d\n", file_count);
 
 	/* Implement ls_d, ls_s, cd_p, pwd operation here */
   switch (op)
@@ -582,6 +582,19 @@ __device__ void fs_gsys(FileSystem *fs, int op)
     } else {
       pwd_helper(fs, fs->cwd);
       printf("\n");
+      break;
+    }
+  }
+  case CD_P:
+  {
+    // cd to parent dir
+    if (cwd_fcb.parent_dir_idx == -1) {
+      // root directory
+      printf("already in root directory\n");
+      break;
+    } else {
+      printf("changed directory to parent directory\n");
+      fs->cwd = cwd_fcb.parent_dir_idx;
       break;
     }
   }
@@ -755,8 +768,41 @@ __device__ void fs_gsys(FileSystem *fs, int op, char *s)
       {
         target_fcb->next->prev = target_fcb->prev;
       }
-      
-      
+           
+      // remove the item in the parent dir's content
+      {
+        printf("removing %s in dir %s\n", target_fcb->filename, fs->start_of_fcb[fs->cwd].filename);
+
+        uchar * cwd_content = get_content(fs, fs->start_of_fcb[fs->cwd].start_block_idx, 0);
+        int cwd_curr_size = fs->start_of_fcb[fs->cwd].size;
+        
+        uchar *new_input = new uchar[cwd_curr_size];
+        my_memcpy((char*)new_input, (char*)cwd_content, cwd_curr_size);
+
+        // find the position of this filename
+        uchar current_byte;
+        int token_start_idx = 0;
+        for (int j = 0; j < cwd_curr_size; j++)
+        {
+          current_byte = new_input[j];
+          // printf("I am examining byte %c\n", current_byte);
+          if (current_byte == '\0')
+          {
+            // printf("token starts with %c\n", *(new_input+token_start_idx));
+            if (strmatch(target_fcb->filename, (char*)(new_input+token_start_idx)))
+            {
+              // printf("match\n");
+              my_memcpy((char*)(new_input+token_start_idx), (char*)(new_input+j+1), my_strlen(target_fcb->filename));
+              break;
+            }
+            token_start_idx = j+1;
+          }
+        }
+
+        fs_write(fs, new_input, cwd_curr_size-my_strlen(target_fcb->filename), fs->cwd);
+        delete[] new_input;
+      }
+
       // free the content memory
       uchar *start = get_content(fs, target_fcb->start_block_idx, 0); // the initial byte of the file content
       printf("fs_delete removing %d bytes of %s, start from block %d span %d\n", target_fcb->size, target_fcb->filename, target_fcb->start_block_idx, block_of_bytes(fs, target_fcb->size));
@@ -786,45 +832,6 @@ __device__ void fs_gsys(FileSystem *fs, int op, char *s)
       tmp[len-1] = '/';
       tmp[len] = '\0';
       u32 fp = fs_open(fs, tmp, G_WRITE);
-      // // find an empty FCB
-      // for (int i = 0; i < fs->FCB_ENTRIES; i++)
-      // {
-      //   target_fcb = &fs->start_of_fcb[i];
-      //   printf("target_fcb->is_on: %d, idx %d\n", target_fcb->is_on,i);
-      //   if (!target_fcb->is_on)
-      //   {
-      //     // create a new empty directory in this file
-      //     target_fcb->size = 0;
-      //     target_fcb->is_on = true;
-      //     target_fcb->modified_time = gtime;
-      //     target_fcb->creation_time = gtime;
-      //     target_fcb->start_block_idx = 0;
-
-      //     target_fcb->is_dir = true;
-      //     target_fcb->parent_dir_idx = fs->cwd;  // set the parent directory to the current working directory
-      //     target_fcb->dir_idx = i;  // for a directory, the dir_idx is its index
-
-      //     target_fcb->dir_files = nullptr;
-      //     target_fcb->next = nullptr;
-      //     target_fcb->prev = nullptr;
-
-
-      //     // copy the dirname as filename
-      //     int idx = 0;
-      //     while (s[idx] != '\0')
-      //     {
-      //       fs->start_of_fcb[i].filename[idx] = s[idx];
-      //       idx++;
-      //     }
-      //     fs->start_of_fcb[i].filename[idx] = '\0';
-
-      //     set_gtime_recursive(fs, i, gtime);
-
-      //     // append the directory
-
-      //     printf("create new directory fcb '%s', index %d\n", s, i);
-      //     return;
-      //   }
     }
   } else if (op == CD) {
     assert(file_exists);  // if assertion failed, the directory does not exist
@@ -833,51 +840,46 @@ __device__ void fs_gsys(FileSystem *fs, int op, char *s)
   } else if (op == RM_RF) {
     // Remove the app directory and all its subdirectories and files recursively
     assert(file_exists);  // if assertion failed, the directory or file does not exist
-
+    printf("RM_RF called, to remove %s\n", s);
+    
     // locate the additional fcb
     if (!target_fcb->is_dir)
     {
       // remove that regular file only
+      printf("rm_rf removing regular file %s\n", s);
       fs_gsys(fs, RM, s);
     } else {
       // recursively remove the directory, its subdirectories and files
-      // read in the contained file or directory info
-      // by tokenizing
 
-      uchar current_byte;
-      int token_start_idx = 0;
+      // first CD into the target dir, after it has been removed CD back
+      fs_gsys(fs, CD, s);
 
-      for (int i = 0; i < target_fcb->size; i++)
+      FCB *cwd_fcb = fs->start_of_fcb + fs->cwd;
+      FCB *curr = cwd_fcb->dir_files;
+      // move to the last one and move forward
+      while (curr->next != nullptr)
       {
-        current_byte = *get_content(fs, target_fcb->start_block_idx, i);
-        if (current_byte == '\0')
+        curr = curr->next;
+      }
+      while (curr != cwd_fcb)
+      {
+        FCB *previous = curr->prev;
+        if (!curr->is_dir)
         {
-          // get this full token
-          char token[21];
-          my_memcpy(token, (char*)get_content(fs, target_fcb->start_block_idx, token_start_idx), i-token_start_idx+1);
-          fs_gsys(fs, RM_RF, token);  // recursive call to remove subdir or subfile
-          token_start_idx = i+1;
+          printf("rm_rf removing regular file %s\n", curr->filename);
+          fs_gsys(fs, RM, curr->filename);
+        } else {
+          printf("rm_rf removing dir %s\n", curr->filename);
+          fs_gsys(fs, RM_RF, curr->filename);
         }
-        
+        curr = previous;
       }
-      // after all subdir and subfile are removed, remove myself
-      target_fcb->is_on = false;
+      // CD back
+      fs_gsys(fs, CD_P);
 
-      // free the content memory
-      uchar *start = fs->start_of_contents + target_fcb->start_block_idx * fs->STORAGE_BLOCK_SIZE; // the initial byte of the file content
-      
-      printf("fs_rmrf removing %d bytes of directory %s, start from block %d span %d\n", target_fcb->size, target_fcb->filename, target_fcb->start_block_idx, block_of_bytes(fs, target_fcb->size));
+      // since we have emptied the dir's subunits, we can now remove it as a regular file
+      fs_gsys(fs, RM, target_fcb->filename);
 
-      // free the blocks  
-      for (u32 i = 0; i < block_of_bytes(fs, target_fcb->size); i++)
-      {
-        mark_block_unused(fs, target_fcb->start_block_idx+i);
-      }
-      // empty the bytes, replace by 0
-      for (u32 i = 0; i < target_fcb->size; i++)
-      {
-        start[i] = 0;
-      }
     }
     
   }
