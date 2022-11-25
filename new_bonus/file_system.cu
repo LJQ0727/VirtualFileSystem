@@ -657,6 +657,7 @@ __device__ void fs_gsys(FileSystem *fs, int op)
       int token_start_idx = 0;
 
       int largest_file_size = 0;
+      // printf("last item size is: %d\n", last_item_size);
       // get the largest file size less than `last_item_size`
       for (int j = 0; j < get_size_of_fcb(cwd_fcb); j++)
       {
@@ -670,7 +671,8 @@ __device__ void fs_gsys(FileSystem *fs, int op)
           // get the fcb
           int fcb_idx = get_fcb_by_name(fs, token, fs->cwd);
           FCB *fcb = START_OF_FCB + fcb_idx;
-          if (check_fcb_on(fcb) && (get_size_of_fcb(fcb) > largest_file_size) && (fcb->modified_time < last_item_size))
+          // printf("examining token %s, size is %d\n", fcb->filename, get_size_of_fcb(fcb));
+          if (check_fcb_on(fcb) && (get_size_of_fcb(fcb) > largest_file_size) && (get_size_of_fcb(fcb) < last_item_size))
           {
             largest_file_size = get_size_of_fcb(fcb);
           }
@@ -682,7 +684,7 @@ __device__ void fs_gsys(FileSystem *fs, int op)
       }
       last_item_size = largest_file_size;
 
-      // printf("largest file size: %d\n", largest_file_size);
+      printf("largest file size: %d\n", largest_file_size);
 
       // count the number of files with the size of largest_file_size
       token_start_idx = 0;
@@ -699,6 +701,7 @@ __device__ void fs_gsys(FileSystem *fs, int op)
           // get the fcb
           int fcb_idx = get_fcb_by_name(fs, token, fs->cwd);
           FCB *fcb = START_OF_FCB + fcb_idx;
+          // printf("examining token %s, size is %d\n", fcb->filename, get_size_of_fcb(fcb));
           if (check_fcb_on(fcb) && (get_size_of_fcb(fcb) == largest_file_size))
           {
             largest_file_count++;
@@ -718,19 +721,23 @@ __device__ void fs_gsys(FileSystem *fs, int op)
 
         u16 earliest_created_time = (1<<15);
         FCB *earliest_fcb;
-
+        token_start_idx = 0;
         for (int j = 0; j < get_size_of_fcb(cwd_fcb); j++)
         {
           current_byte = *get_content(fs, cwd_fcb->start_block_idx, j);
+          // printf("examining byte %c\n", current_byte);
           if (current_byte == '\0')
           {
             // get this full token
             char *token = new char[20];
             my_memcpy(token, (char*)get_content(fs, cwd_fcb->start_block_idx, token_start_idx), j-token_start_idx+1);
             token[j-token_start_idx+1] = '\0';
+
+            // printf("examining token %s\n", token);
             // get the fcb
             int fcb_idx = get_fcb_by_name(fs, token, fs->cwd);
             FCB *fcb = START_OF_FCB + fcb_idx;
+            // printf("last item time: %d\n", last_item_time);
             if (check_fcb_on(fcb) && (get_size_of_fcb(fcb) == largest_file_size) && (fcb->creation_time < earliest_created_time) && (fcb->creation_time > last_item_time))
             {
               earliest_fcb = fcb;
