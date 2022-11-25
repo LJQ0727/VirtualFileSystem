@@ -137,13 +137,15 @@ __device__ int get_fcb_by_name(FileSystem *fs, char *name, int dir_idx) {
 }
 
 __device__ void set_gtime_recursive(FileSystem *fs, int fcb_idx, u32 gtime) {
-  // recursively set the gtime of the fcb and propagate this change to all parent dirs
+  // set the gtime of the fcb and propagate this change to all parent dirs
 
   FCB *fcb = START_OF_FCB + fcb_idx;
   fcb->modified_time = gtime;
   printf("modified gtime of %s to %d isdir: %d\n", fcb->filename ,gtime, check_is_dir(fcb));
-  if (fcb->dir_idx != -1) {
-    set_gtime_recursive(fs, fcb->dir_idx, gtime);
+  while (fcb->dir_idx != -1) {
+    fcb = START_OF_FCB + fcb->dir_idx;
+    fcb->modified_time = gtime;
+    printf("modified gtime of %s to %d isdir: %d\n", fcb->filename ,gtime, check_is_dir(fcb));
   }
 }
 
@@ -769,28 +771,7 @@ __device__ void fs_gsys(FileSystem *fs, int op)
   
 }
 
-
-// rm, cd, mkdir, rm_rf goes here
-__device__ void fs_gsys(FileSystem *fs, int op, char *s)
-{
-  // find the specific file in the FCB
-  bool file_exists = file_exists_in_curr_dir(fs, s);
-  int fcb_idx = 0;
-  if (file_exists)
-  {
-    fcb_idx = get_fcb_by_name(fs, s, fs->cwd);
-  }
-  FCB *target_fcb = START_OF_FCB + fcb_idx;
-  
-
-	/* Implement rm operation here */
-  if (op == RM)
-  {
-    // delete the specific file
-    if (!file_exists)
-    {
-      assert(0);  // file not found
-    } else {
+__device__ void remove_file(FileSystem *fs, FCB *target_fcb) {
       mark_fcb_off(target_fcb);
 
       // remove the item in the parent dir's content
@@ -842,6 +823,76 @@ __device__ void fs_gsys(FileSystem *fs, int op, char *s)
       {
         start[i] = 0;
       }
+    
+}
+
+// rm, cd, mkdir, rm_rf goes here
+__device__ void fs_gsys(FileSystem *fs, int op, char *s)
+{
+  // absolute path operation support
+  if (s[0] == '/')
+  {
+    // first cd to root
+    int token_start_idx = 1;
+    int curr_cwd = fs->cwd;
+    fs->cwd = 0;
+    if (my_strlen(s) == 2)
+    {
+      return;
+    }
+    
+    char *token = new char[20];
+    // cd to the last dir
+    for (int x = 1; x < my_strlen(s); x++)
+    {
+      if (s[x] == '/')
+      {
+        my_memcpy(token, s+token_start_idx, x-token_start_idx);
+        token[x-token_start_idx] = '\0';
+        printf("cd to %s\n", token);
+        fs_gsys(fs, CD, token);
+        token_start_idx = x+1;
+      }
+      
+      if (s[x] == '\0')
+      {
+        my_memcpy(token, s+token_start_idx, x-token_start_idx);
+        token[x-token_start_idx] = '\0';
+        token_start_idx = x+1;
+        break;
+      }
+    }
+
+    fs_gsys(fs, op, token);
+    delete[] token;
+
+    // cd back
+    if (op != CD)
+    {
+      fs->cwd = curr_cwd;
+    }
+    return;
+  }
+
+  // find the specific file in the FCB
+  bool file_exists = file_exists_in_curr_dir(fs, s);
+  int fcb_idx = 0;
+  if (file_exists)
+  {
+    fcb_idx = get_fcb_by_name(fs, s, fs->cwd);
+  }
+  FCB *target_fcb = START_OF_FCB + fcb_idx;
+  
+
+	/* Implement rm operation here */
+  if (op == RM)
+  {
+    // delete the specific file
+    if (!file_exists)
+    {
+      assert(0);  // file not found
+    } else {
+      remove_file(fs, target_fcb);
     }
     
   } else if (op == MKDIR)
@@ -873,36 +924,50 @@ __device__ void fs_gsys(FileSystem *fs, int op, char *s)
     {
       // remove that regular file only
       printf("rm_rf removing regular file %s\n", s);
-      fs_gsys(fs, RM, s);
+      remove_file(fs, target_fcb);
     } else {
       // recursively remove the directory, its subdirectories and files
 
       // first CD into the target dir, after it has been removed CD back
-      fs_gsys(fs, CD, s);
+      fs->cwd = target_fcb - START_OF_FCB;
 
       uchar current_byte;
-      int token_start_idx = 0;
+      int current_idx = 0;
 
-      for (int i = 0; i < get_size_of_fcb(target_fcb); i++)
+      // token start idx will always be 0
+      while (get_content(fs, START_OF_FCB[fs->cwd].start_block_idx, 0)[0] != '\0')
       {
-        current_byte = *get_content(fs, target_fcb->start_block_idx, i);
+        current_byte = *get_content(fs, target_fcb->start_block_idx, current_idx);
+        printf("I am examining byte %c\n", current_byte);
         if (current_byte == '\0')
         {
           // get this full token
           char *token = new char[20];
-          my_memcpy(token, (char*)get_content(fs, target_fcb->start_block_idx, token_start_idx), i-token_start_idx+1);
-          token[i-token_start_idx+1] = '\0';
-          fs_gsys(fs, RM_RF, token);  // recursive call to remove subdir or subfile
-          token_start_idx = i+1;
+          my_memcpy(token, (char*)get_content(fs, target_fcb->start_block_idx, 0), current_idx+1);
+          printf("token is %s\n", token);
+
+          FCB *token_fcb = START_OF_FCB + get_fcb_by_name(fs, token, fs->cwd);
+          if (check_is_dir(token_fcb))
+          {
+            // recursively remove the subdirectory
+            fs_gsys(fs, RM_RF, token);
+          } else {
+            // remove the regular file
+            remove_file(fs, token_fcb);
+          }
+          
+          current_idx = -1;
           delete[] token;
         }
-        
+        current_idx++;
       }
+      
       // CD back
-      fs_gsys(fs, CD_P);
+      // cd to parent dir
+      fs->cwd = target_fcb->dir_idx;
 
       // since we have emptied the dir's subunits, we can now remove it as a regular file
-      fs_gsys(fs, RM, target_fcb->filename);
+      remove_file(fs, target_fcb);
 
     }
     
