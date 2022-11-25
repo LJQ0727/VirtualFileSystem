@@ -611,9 +611,11 @@ __device__ void fs_gsys(FileSystem *fs, int op)
           char *token = new char[20];
           my_memcpy(token, (char*)get_content(fs, cwd_fcb->start_block_idx, token_start_idx), j-token_start_idx+1);
           token[j-token_start_idx+1] = '\0';
+          // printf("token: %s\n", token);
           // get the fcb
           int fcb_idx = get_fcb_by_name(fs, token, fs->cwd);
           FCB *fcb = START_OF_FCB + fcb_idx;
+          // printf("examining fcb %s, size %d\n", fcb->filename, fcb->size);
           if (check_fcb_on(fcb) && (fcb->modified_time > latest_modified_time) && (fcb->modified_time < last_item_time))
           {
             latest_fcb = *fcb;
@@ -684,7 +686,7 @@ __device__ void fs_gsys(FileSystem *fs, int op)
       }
       last_item_size = largest_file_size;
 
-      printf("largest file size: %d\n", largest_file_size);
+      // printf("largest file size: %d\n", largest_file_size);
 
       // count the number of files with the size of largest_file_size
       token_start_idx = 0;
@@ -711,7 +713,7 @@ __device__ void fs_gsys(FileSystem *fs, int op)
         }
         
       }
-      printf("largest file size: %d, count: %d\n", largest_file_size, largest_file_count);
+      // printf("largest file size: %d, count: %d\n", largest_file_size, largest_file_count);
 
       // now we have the size, find the file or subdir with the same size and print by creation time order
       u16 last_item_time = 0;
@@ -807,14 +809,15 @@ __device__ void fs_gsys(FileSystem *fs, int op, char *s)
         for (int j = 0; j < cwd_curr_size; j++)
         {
           current_byte = new_input[j];
-          // printf("I am examining byte %c\n", current_byte);
+          // printf("rm I am examining byte %c\n", current_byte);
           if (current_byte == '\0')
           {
             // printf("token starts with %c\n", *(new_input+token_start_idx));
+            // printf("token is %s\n", new_input+token_start_idx);
             if (strmatch(target_fcb->filename, (char*)(new_input+token_start_idx)))
             {
               // printf("match\n");
-              my_memcpy((char*)(new_input+token_start_idx), (char*)(new_input+j+1), my_strlen(target_fcb->filename));
+              my_memcpy((char*)(new_input+token_start_idx), (char*)(new_input+j+1), cwd_curr_size-j-1);
               break;
             }
             token_start_idx = j+1;
