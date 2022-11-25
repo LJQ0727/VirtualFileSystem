@@ -47,7 +47,9 @@ __device__ void fs_init(FileSystem *fs, uchar *volume, int SUPERBLOCK_SIZE,
   }
 
   // make root directory and cd to it
-  fs_gsys(fs, MKDIR, "/\0");
+  // append '/' at the end of s, indicating dir
+  char tmp[3] = {'/', '/', '\0'};
+  u32 fp = fs_open(fs, tmp, G_WRITE);
   fs->cwd = 0;  // root will be created at idx 0
 }
 
@@ -741,6 +743,51 @@ __device__ void fs_gsys(FileSystem *fs, int op)
 // rm, cd, mkdir, rm_rf goes here
 __device__ void fs_gsys(FileSystem *fs, int op, char *s)
 {
+  // absolute path operation support
+  if (s[0] == '/')
+  {
+    // first cd to root
+    int token_start_idx = 1;
+    int curr_cwd = fs->cwd;
+    fs->cwd = 0;
+    if (my_strlen(s) == 2)
+    {
+      return;
+    }
+    
+    char *token = new char[21];
+    // cd to the last dir
+    for (int x = 1; x < my_strlen(s); x++)
+    {
+      if (s[x] == '/')
+      {
+        my_memcpy(token, s+token_start_idx, x-token_start_idx);
+        token[x-token_start_idx] = '\0';
+        printf("cd to %s\n", token);
+        fs_gsys(fs, CD, token);
+        token_start_idx = x+1;
+      }
+      
+      if (s[x] == '\0')
+      {
+        my_memcpy(token, s+token_start_idx, x-token_start_idx);
+        token[x-token_start_idx] = '\0';
+        token_start_idx = x+1;
+        break;
+      }
+    }
+
+    fs_gsys(fs, op, token);
+    delete[] token;
+
+    // cd back
+    if (op != CD)
+    {
+      fs->cwd = curr_cwd;
+    }
+    return;
+  }
+
   // find the specific file in the FCB
   bool file_exists = file_exists_in_curr_dir(fs, s);
   FCB *target_fcb = get_file_in_curr_dir(fs, s);
@@ -827,11 +874,12 @@ __device__ void fs_gsys(FileSystem *fs, int op, char *s)
     } else {
       // append '/' at the end of s
       int len = my_strlen(s);
-      char tmp[21];
+      char *tmp = new char[21];
       my_memcpy(tmp, s, len);
       tmp[len-1] = '/';
       tmp[len] = '\0';
       u32 fp = fs_open(fs, tmp, G_WRITE);
+      delete[] tmp;
     }
   } else if (op == CD) {
     assert(file_exists);  // if assertion failed, the directory does not exist
