@@ -9,18 +9,17 @@
 #define DATAFILE "./data.bin"
 #define OUTFILE "./snapshot.bin"
 
-#define SUPERBLOCK_SIZE 4096 //32K/8 bits = 4 K 
-// 1024KB/32B = 2^15 data Blocks, which needs 2^15 bits to indicate the status, which is 4KB in exact
-#define FCB_SIZE 32 //32 bytes per FCB, including file name, file size, file blocks. in total 1024 FCBs
-#define FCB_ENTRIES 1024	// maximum 1024 stored files, so the fcb part is 32kb
-#define VOLUME_SIZE 1085440 //4096+32768+1048576 	volume size is 1060kb
-#define STORAGE_BLOCK_SIZE 32	// the storage block size is 32b, so in total 2^15 Blocks
+#define SUPERBLOCK_SIZE 4096 //32K/8 bits = 4 K
+#define FCB_SIZE 32 //32 bytes per FCB
+#define FCB_ENTRIES 1024
+#define VOLUME_SIZE 1085440 //4096+32768+1048576
+#define STORAGE_BLOCK_SIZE 32
 
 #define MAX_FILENAME_SIZE 20
 #define MAX_FILE_NUM 1024
-#define MAX_FILE_SIZE 1048576	// max file size is 1024kb
+#define MAX_FILE_SIZE 1048576
 
-#define FILE_BASE_ADDRESS 36864 //4096+32768=36kb	//start address of file storage area
+#define FILE_BASE_ADDRESS 36864 //4096+32768
 
 
 // data input and output
@@ -87,8 +86,6 @@ __host__ int load_binaryFile(char *fileName, void *buffer, int bufferSize)
 int main() {
   cudaError_t cudaStatus;
   load_binaryFile(DATAFILE, input, MAX_FILE_SIZE);
-
-//   printf("sizeof is %d\n", sizeof(FCB));
 
   // Launch to GPU kernel with single thread
   mykernel<<<1, 1>>>(input, output);
