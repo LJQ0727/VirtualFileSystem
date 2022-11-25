@@ -823,7 +823,7 @@ __device__ void fs_gsys(FileSystem *fs, int op, char *s)
   {
     // create a new directory
     if (file_exists) {
-      assert(0);  // directory already exists
+      return; // allow existing directory
     } else {
       // append '/' at the end of s
       int len = my_strlen(s);
