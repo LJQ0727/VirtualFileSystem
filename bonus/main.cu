@@ -31,7 +31,6 @@ __device__ __managed__ uchar output[MAX_FILE_SIZE];
 __device__ __managed__ uchar volume[VOLUME_SIZE];
 
 // expand the FCB space in bonus
-// this contains additional fcb information with the same index as the original fcb
 __device__ __managed__ FCB fcb_entry[FCB_ENTRIES];
 
 

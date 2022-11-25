@@ -658,7 +658,7 @@ __device__ void fs_gsys(FileSystem *fs, int op)
     // If there are several files with the same size, then first create first print.
 
     
-    u16 last_item_size = (1<<15); // the distinct size of the last printed file
+    u32 last_item_size = (1<<31); // the distinct size of the last printed file
     int print_count = 0;
 
     while (print_count < file_count)
