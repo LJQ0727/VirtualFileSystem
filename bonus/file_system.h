@@ -24,26 +24,17 @@ typedef uint16_t u16;
 #define PWD 7
 
 // File control block
+// this is 32 bytes. We turn the FCB portion in the volume into (FCB*). So no extra space
 struct FCB {
-	char filename[21];	// maximum size of filename is 20 bytes
+	char filename[20];	// maximum size of filename is 20 bytes
 	u32 size;	// the size of the file **in bytes**
 	u16 modified_time;	// the last modified time
 	u16 creation_time;
 	u16 start_block_idx;	// the index of the first of its contiguous blocks
-	bool is_on;
 
-	// additional information
-	bool is_dir;	// true if it is a directory
-	int parent_dir_idx;	// the index of the parent directory, of the dir the file is in
-	int dir_idx;	// the index of the directory that the file is in; for a dir, it is its own idx
-
-	// only set if the FCB is a dir, which points to the first file in the subdir
-	FCB * dir_files;	// a doubly linked list to all files in the dir; 
-
-	// a doubly-linked list connecting all in the current directory
-	// the first file should point back to the directory file
-	FCB * next;
-	FCB * prev;
+	// if the FCB is a directory, it stores its parent dir index.
+	// if the FCB is root directory, its parent dir index will be -1
+	int16_t dir_idx;	// the index of the directory that the file is in; for a dir, it is its own idx
 };
 
 
@@ -58,11 +49,7 @@ struct FileSystem {
 	int MAX_FILE_NUM;
 	int MAX_FILE_SIZE;
 	int FILE_BASE_ADDRESS;
-	int STORAGE_BLOCK_COUNT;
 
-	uchar *start_of_superblock;
-	FCB *start_of_fcb;
-	uchar *start_of_contents;
 	int cwd;	// current working directory's fcb index, **not** block index
 };
 
@@ -70,8 +57,7 @@ struct FileSystem {
 __device__ void fs_init(FileSystem *fs, uchar *volume, int SUPERBLOCK_SIZE,
 	int FCB_SIZE, int FCB_ENTRIES, int VOLUME_SIZE,
 	int STORAGE_BLOCK_SIZE, int MAX_FILENAME_SIZE,
-	int MAX_FILE_NUM, int MAX_FILE_SIZE, int FILE_BASE_ADDRESS,
-	FCB *start_of_fcb);
+	int MAX_FILE_NUM, int MAX_FILE_SIZE, int FILE_BASE_ADDRESS);
 
 __device__ u32 fs_open(FileSystem *fs, char *s, int op);
 __device__ void fs_read(FileSystem *fs, uchar *output, u32 size, u32 fp);
