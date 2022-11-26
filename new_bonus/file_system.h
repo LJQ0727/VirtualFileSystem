@@ -31,14 +31,10 @@ struct FCB {
 	u16 modified_time;	// the last modified time
 	u16 creation_time;
 	u16 start_block_idx;	// the index of the first of its contiguous blocks
-	// bool is_on;
 
-	// additional information
-	// bool is_dir;	// true if it is a directory
-	// int parent_dir_idx;	// the index of the parent directory, of the dir the file is in
-	int16_t dir_idx;	// the index of the directory that the file is in; for a dir, it is its own idx
 	// if the FCB is a directory, it stores its parent dir index.
 	// if the FCB is root directory, its parent dir index will be -1
+	int16_t dir_idx;	// the index of the directory that the file is in; for a dir, it is its own idx
 };
 
 
