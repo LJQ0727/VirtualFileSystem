@@ -141,11 +141,11 @@ __device__ void set_gtime_recursive(FileSystem *fs, int fcb_idx, u32 gtime) {
 
   FCB *fcb = START_OF_FCB + fcb_idx;
   fcb->modified_time = gtime;
-  printf("modified gtime of %s to %d isdir: %d\n", fcb->filename ,gtime, check_is_dir(fcb));
+  // printf("modified gtime of %s to %d isdir: %d\n", fcb->filename ,gtime, check_is_dir(fcb));
   while (fcb->dir_idx != -1) {
     fcb = START_OF_FCB + fcb->dir_idx;
     fcb->modified_time = gtime;
-    printf("modified gtime of %s to %d isdir: %d\n", fcb->filename ,gtime, check_is_dir(fcb));
+    // printf("modified gtime of %s to %d isdir: %d\n", fcb->filename ,gtime, check_is_dir(fcb));
   }
 }
 
@@ -222,7 +222,7 @@ __device__ u32 fs_open(FileSystem *fs, char *s, int op)
         // have to empty the file in the next write operation
         // in which we will check the `size` attribute, if it's not 0, we will free the blocks
         int fcb_idx = get_fcb_by_name(fs, s, fs->cwd);
-        printf("fs_open file %s exists, index %d\n", s, fcb_idx);
+        // printf("fs_open file %s exists, index %d\n", s, fcb_idx);
         return fcb_idx;
       } else {  // file not exists
         gtime++;
@@ -233,7 +233,6 @@ __device__ u32 fs_open(FileSystem *fs, char *s, int op)
 
           if (!check_fcb_on(target_fcb))
           {
-            printf("found unused fcb %d\n", i);
             // mark the FCB as on and set its attrs
             target_fcb->dir_idx = fs->cwd;
             target_fcb->modified_time = gtime;
@@ -249,8 +248,8 @@ __device__ u32 fs_open(FileSystem *fs, char *s, int op)
               mark_is_dir(target_fcb);
               target_fcb->dir_idx = fs->cwd;
               s[my_strlen(s)-2] = '\0';  // remove the last '/'
-              printf("fs_open dir %s created, index %d\n", s, i);
-              printf("Parent dir idx %d\n", target_fcb->dir_idx);
+              // printf("fs_open dir %s created, index %d\n", s, i);
+              // printf("Parent dir idx %d\n", target_fcb->dir_idx);
             }
 
             // copy the filename
@@ -265,7 +264,7 @@ __device__ u32 fs_open(FileSystem *fs, char *s, int op)
             if (is_dir_name && (target_fcb->dir_idx == -1))
             {
               // this is the root directory, no parent directory
-              printf("returning root dir fcb index %d\n", i);
+              // printf("returning root dir fcb index %d\n", i);
               return i;
             }
 
@@ -279,7 +278,7 @@ __device__ u32 fs_open(FileSystem *fs, char *s, int op)
             my_memcpy((char*)(input+cwd_curr_size), (char*)s, my_strlen(s));
             
             fs_write(fs, input, cwd_curr_size + my_strlen(s), fs->cwd);
-            printf("fs_open new fcb %s, index %d\n", s, i);
+            // printf("fs_open new fcb %s, index %d\n", s, i);
             
             delete[] input;
             set_gtime_recursive(fs, i, gtime);
@@ -314,7 +313,7 @@ __device__ void fs_read(FileSystem *fs, uchar *output, u32 size, u32 fp)
   uchar *start = START_OF_CONTENTS + START_OF_FCB[fp].start_block_idx * fs->STORAGE_BLOCK_SIZE;
   FCB fcb = START_OF_FCB[fp];   // the fcb for this file
 
-  printf("fs_read %d bytes from %s\n", size, fcb.filename);
+  // printf("fs_read %d bytes from %s\n", size, fcb.filename);
   
   // read `size` bytes to buffer `output`
   for (u32 i = 0; i < size; i++)
@@ -324,7 +323,7 @@ __device__ void fs_read(FileSystem *fs, uchar *output, u32 size, u32 fp)
 }
 
 __device__ void block_move(FileSystem *fs, int target_block_idx, int source_block_idx) {
-  printf("moving block %d to %d\n", source_block_idx, target_block_idx);
+  // printf("moving block %d to %d\n", source_block_idx, target_block_idx);
 
   uchar *target_start = START_OF_CONTENTS + target_block_idx * fs->STORAGE_BLOCK_SIZE;
   uchar *source_start = START_OF_CONTENTS + source_block_idx * fs->STORAGE_BLOCK_SIZE;
@@ -341,7 +340,7 @@ __device__ u16 alloc_new_blocks(FileSystem *fs, int target_block_size) {
   // allocate contiguous blocks with `target_block_size`, register it in the bitmap
   // return the index of the first block
   // if no enough contiguous blocks, have to manage the fragmentation
-  printf("allocating %d blocks in alloc_new_blocks\n", target_block_size);
+  // printf("allocating %d blocks in alloc_new_blocks\n", target_block_size);
   int current_block_idx = 0;
   int block_count = 0;
   while (current_block_idx < STORAGE_BLOCK_COUNT)
@@ -353,7 +352,7 @@ __device__ u16 alloc_new_blocks(FileSystem *fs, int target_block_size) {
       block_count++;
       if (block_count == target_block_size) {
         // found enough contiguous blocks
-        printf("contiguous block found, returning block %d, span %d\n", current_block_idx - target_block_size + 1, target_block_size);
+        // printf("contiguous block found, returning block %d, span %d\n", current_block_idx - target_block_size + 1, target_block_size);
         // mark blocks as used
         for (int i = 0; i < target_block_size; i++)
         {
@@ -366,7 +365,7 @@ __device__ u16 alloc_new_blocks(FileSystem *fs, int target_block_size) {
     current_block_idx++;
   }
 
-  printf("No enough contiguous blocks, have to manage the fragmentation\n");
+  // printf("No enough contiguous blocks, have to manage the fragmentation\n");
   // not enough contiguous space, have to manage the fragmentation
   // compation algorithm
   int first_unused_block_idx = 0;
@@ -405,7 +404,7 @@ __device__ u16 alloc_new_blocks(FileSystem *fs, int target_block_size) {
       FCB *fcb = START_OF_FCB + i;
       if (fcb->start_block_idx == current_block_idx)
       {
-        printf("reassigning fcb block %d to %d\n", fcb->start_block_idx, first_unused_block_idx);
+        // printf("reassigning fcb block %d to %d\n", fcb->start_block_idx, first_unused_block_idx);
         fcb->start_block_idx = first_unused_block_idx;
         break;
       }
@@ -420,7 +419,7 @@ __device__ u16 alloc_new_blocks(FileSystem *fs, int target_block_size) {
   }
 
   // reallocate
-  printf("reallocating %d blocks in alloc_new_blocks\n", target_block_size);
+  // printf("reallocating %d blocks in alloc_new_blocks\n", target_block_size);
   current_block_idx = 0;
   block_count = 0;
   while (current_block_idx < STORAGE_BLOCK_COUNT)
@@ -432,7 +431,7 @@ __device__ u16 alloc_new_blocks(FileSystem *fs, int target_block_size) {
       block_count++;
       if (block_count == target_block_size) {
         // found enough contiguous blocks
-        printf("contiguous block found, returning block %d, span %d\n", current_block_idx - target_block_size + 1, target_block_size);
+        // printf("contiguous block found, returning block %d, span %d\n", current_block_idx - target_block_size + 1, target_block_size);
         // mark blocks as used
         for (int i = 0; i < target_block_size; i++)
         {
@@ -461,7 +460,7 @@ __device__ u32 fs_write(FileSystem *fs, uchar* input, u32 size, u32 fp)
   FCB *fcb = START_OF_FCB+fp;   // the fcb for this file
   u16 start_block_idx = fcb->start_block_idx;
   
-  printf("fs_write %d bytes into %s\n", size, fcb->filename);
+  // printf("fs_write %d bytes into %s\n", size, fcb->filename);
   // printf("start_block_idx %d\n", start_block_idx);
   // printf("check used: %d\n", check_block_used(fs, start_block_idx));
 
@@ -490,7 +489,7 @@ __device__ u32 fs_write(FileSystem *fs, uchar* input, u32 size, u32 fp)
   
   if (can_directly_write)
   {
-    printf("directly writing %d blocks starting from block %d\n", block_of_bytes(fs, size), start_block_idx);
+    // printf("directly writing %d blocks starting from block %d\n", block_of_bytes(fs, size), start_block_idx);
     // directly write to it
     for (u32 i = 0; i < size; i++)
     {
@@ -507,7 +506,7 @@ __device__ u32 fs_write(FileSystem *fs, uchar* input, u32 size, u32 fp)
   } else {
     // cannot directly write, need to fix fragmentation, then directly write
     fcb->start_block_idx = alloc_new_blocks(fs, block_of_bytes(fs, size));
-    printf("resetting start_block_idx to %d\n", fcb->start_block_idx);
+    // printf("resetting start_block_idx to %d\n", fcb->start_block_idx);
     // perform write
     start = START_OF_CONTENTS + fcb->start_block_idx * fs->STORAGE_BLOCK_SIZE; // the initial byte of the file content
     for (u32 i = 0; i < size; i++)
@@ -560,7 +559,7 @@ __device__ void fs_gsys(FileSystem *fs, int op)
   {
   case PWD:
   {
-    printf("printing pwd\n");
+    // printf("printing pwd\n");
     // printf("fs.cwd: %d\n", fs->cwd);
     if (cwd_fcb->dir_idx == -1) {
       // root directory
@@ -577,10 +576,10 @@ __device__ void fs_gsys(FileSystem *fs, int op)
     // cd to parent dir
     if (cwd_fcb->dir_idx == -1) {
       // root directory
-      printf("already in root directory\n");
+      // printf("already in root directory\n");
       break;
     } else {
-      printf("changed directory to parent directory\n");
+      // printf("changed directory to parent directory\n");
       fs->cwd = cwd_fcb->dir_idx;
       break;
     }
@@ -776,7 +775,7 @@ __device__ void remove_file(FileSystem *fs, FCB *target_fcb) {
 
       // remove the item in the parent dir's content
       {
-        printf("removing %s in dir %s\n", target_fcb->filename, START_OF_FCB[fs->cwd].filename);
+        // printf("removing %s in dir %s\n", target_fcb->filename, START_OF_FCB[fs->cwd].filename);
 
         uchar * cwd_content = get_content(fs, START_OF_FCB[fs->cwd].start_block_idx, 0);
         int cwd_curr_size = get_size_of_fcb(START_OF_FCB + fs->cwd);
@@ -811,7 +810,7 @@ __device__ void remove_file(FileSystem *fs, FCB *target_fcb) {
 
       // free the content memory
       uchar *start = get_content(fs, target_fcb->start_block_idx, 0); // the initial byte of the file content
-      printf("fs_delete removing %d bytes of %s, start from block %d span %d\n", get_size_of_fcb(target_fcb), target_fcb->filename, target_fcb->start_block_idx, block_of_bytes(fs, get_size_of_fcb(target_fcb)));
+      // printf("fs_delete removing %d bytes of %s, start from block %d span %d\n", get_size_of_fcb(target_fcb), target_fcb->filename, target_fcb->start_block_idx, block_of_bytes(fs, get_size_of_fcb(target_fcb)));
 
       // free the blocks  
       for (u32 i = 0; i < block_of_bytes(fs, get_size_of_fcb(target_fcb)); i++)
@@ -849,7 +848,7 @@ __device__ void fs_gsys(FileSystem *fs, int op, char *s)
       {
         my_memcpy(token, s+token_start_idx, x-token_start_idx);
         token[x-token_start_idx] = '\0';
-        printf("cd to %s\n", token);
+        // printf("cd to %s\n", token);
         fs_gsys(fs, CD, token);
         token_start_idx = x+1;
       }
@@ -913,17 +912,17 @@ __device__ void fs_gsys(FileSystem *fs, int op, char *s)
   } else if (op == CD) {
     assert(file_exists);  // if assertion failed, the directory does not exist
     fs->cwd = fcb_idx;
-    printf("change directory to %s, index %d\n", s, fs->cwd);
+    // printf("change directory to %s, index %d\n", s, fs->cwd);
   } else if (op == RM_RF) {
     // Remove the app directory and all its subdirectories and files recursively
     assert(file_exists);  // if assertion failed, the directory or file does not exist
-    printf("RM_RF called, to remove %s\n", s);
+    // printf("RM_RF called, to remove %s\n", s);
 
     // locate the additional fcb
     if (!check_is_dir(target_fcb))
     {
       // remove that regular file only
-      printf("rm_rf removing regular file %s\n", s);
+      // printf("rm_rf removing regular file %s\n", s);
       remove_file(fs, target_fcb);
     } else {
       // recursively remove the directory, its subdirectories and files
@@ -938,13 +937,13 @@ __device__ void fs_gsys(FileSystem *fs, int op, char *s)
       while (get_content(fs, START_OF_FCB[fs->cwd].start_block_idx, 0)[0] != '\0')
       {
         current_byte = *get_content(fs, target_fcb->start_block_idx, current_idx);
-        printf("I am examining byte %c\n", current_byte);
+        // printf("I am examining byte %c\n", current_byte);
         if (current_byte == '\0')
         {
           // get this full token
           char *token = new char[20];
           my_memcpy(token, (char*)get_content(fs, target_fcb->start_block_idx, 0), current_idx+1);
-          printf("token is %s\n", token);
+          // printf("token is %s\n", token);
 
           FCB *token_fcb = START_OF_FCB + get_fcb_by_name(fs, token, fs->cwd);
           if (check_is_dir(token_fcb))
