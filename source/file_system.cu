@@ -106,7 +106,6 @@ __device__ u32 fs_open(FileSystem *fs, char *s, int op)
   // s ends with '\0'
   // op: open mode, G_READ or G_WRITE
   // returns the file pointer, which is the index of the FCB entry
-  gtime++;
 
   // find if the specific file already exists in the FCB
   bool file_exists = false;
@@ -139,6 +138,7 @@ __device__ u32 fs_open(FileSystem *fs, char *s, int op)
         // printf("fs_open file %s exists, index %d\n", s, fcb_idx);
         return fcb_idx;
       } else {  // file not exists
+        gtime++;
         // allocate a new fcb index for the newly-created file
         for (int i = 0; i < fs->FCB_ENTRIES; i++)
         { // find an unused fcb
