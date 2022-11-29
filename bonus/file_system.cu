@@ -136,20 +136,6 @@ __device__ int get_fcb_by_name(FileSystem *fs, char *name, int dir_idx) {
   return -1;
 }
 
-__device__ void set_gtime_recursive(FileSystem *fs, int fcb_idx, u32 gtime) {
-  // set the gtime of the fcb and propagate this change to all parent dirs
-
-  FCB *fcb = START_OF_FCB + fcb_idx;
-  fcb->modified_time = gtime;
-  // printf("modified gtime of %s to %d isdir: %d\n", fcb->filename ,gtime, check_is_dir(fcb));
-  while (fcb->dir_idx != -1) {
-    fcb = START_OF_FCB + fcb->dir_idx;
-    fcb->modified_time = gtime;
-    // printf("modified gtime of %s to %d isdir: %d\n", fcb->filename ,gtime, check_is_dir(fcb));
-  }
-}
-
-
 __device__ bool strmatch(char *start1, char* start2) {
   // match two strings, return true if they are the same
   int idx = 0;
@@ -281,7 +267,6 @@ __device__ u32 fs_open(FileSystem *fs, char *s, int op)
             // printf("fs_open new fcb %s, index %d\n", s, i);
             
             delete[] input;
-            set_gtime_recursive(fs, i, gtime);
             return i;
           }
         }
@@ -454,12 +439,12 @@ __device__ u32 fs_write(FileSystem *fs, uchar* input, u32 size, u32 fp)
 	// write bytes to the file
   // fp the index of the FCB
   gtime++;
-  set_gtime_recursive(fs, fp, gtime);
 
   uchar *start = START_OF_CONTENTS + START_OF_FCB[fp].start_block_idx * fs->STORAGE_BLOCK_SIZE; // the initial byte of the file content
   FCB *fcb = START_OF_FCB+fp;   // the fcb for this file
   u16 start_block_idx = fcb->start_block_idx;
   
+  fcb->modified_time = gtime;
   // printf("fs_write %d bytes into %s\n", size, fcb->filename);
   // printf("start_block_idx %d\n", start_block_idx);
   // printf("check used: %d\n", check_block_used(fs, start_block_idx));
