@@ -87,7 +87,7 @@ int main() {
   cudaError_t cudaStatus;
   
   // set the maxmimum stack size
-  cudaDeviceSetLimit(cudaLimitStackSize, 4096);
+  cudaDeviceSetLimit(cudaLimitStackSize, 32768);
 
   load_binaryFile(DATAFILE, input, MAX_FILE_SIZE);
 
