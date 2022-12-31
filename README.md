@@ -1,36 +1,36 @@
-# Assignment 3 Project Report
+# Assignment 4 Project Report
 
 Li Jiaqi  120090727
 
 # Overview
 
-In this assignment, I have completed both the basic VM simulation and the bonus task of multithreaded VM simulation. The following content will describe the relevant information of these two tasks I completed.
+In this assignment, I have completed both the basic single-directory File System and the bonus task of tree-structured directory File System. The following content will describe the relevant information of these two tasks I completed.
 
 # Environment
 
 ## OS Version
 
-I use the university’s High Performance Cluster (HPC) for testing and running the CUDA program. The nodes run on a CenOS version 7.5.1804. 
+I use the university’s High Performance Cluster (HPC) for testing and running the CUDA program. The nodes run on a CentOS version 7.5.1804. 
 
-![Untitled](Assignment%203%20Project%20Report%20747bad9787864c83abf4a0185b5fe2d3/Untitled.png)
+![Untitled](Assignment%204%20Project%20Report%20df997535fd09484fbe8700aea427099a/Untitled.png)
 
 ## Kernel version
 
 This is the kernel version of the HPC. Other versions should also be OK.
 
-![Untitled](Assignment%203%20Project%20Report%20747bad9787864c83abf4a0185b5fe2d3/Untitled%201.png)
+![Untitled](Assignment%204%20Project%20Report%20df997535fd09484fbe8700aea427099a/Untitled%201.png)
 
 ## CUDA Version
 
 I use the CUDA compiler version 11.7 for compiling the CUDA program. 
 
-![Untitled](Assignment%203%20Project%20Report%20747bad9787864c83abf4a0185b5fe2d3/Untitled%202.png)
+![Untitled](Assignment%204%20Project%20Report%20df997535fd09484fbe8700aea427099a/Untitled%202.png)
 
 ## GPU Info
 
-For each node in the HPC, it is equipped with a Quadro RTX 4000 GPU. Each time the program only runs on one allocated node.
+For each node in the HPC, it is equipped with a Quadro RTX 4000 GPU. Each time the program only runs on one allocated node. I have also tested my programs on a RTX3090 GPU.
 
-![Untitled](Assignment%203%20Project%20Report%20747bad9787864c83abf4a0185b5fe2d3/Untitled%203.png)
+![Untitled](Assignment%204%20Project%20Report%20df997535fd09484fbe8700aea427099a/Untitled%203.png)
 
 # Running the program
 
@@ -45,22 +45,48 @@ sbatch slurm.sh
 On a device without slurm, one can first compile using 
 
 ```
-nvcc --relocatable-device-code=true main.cu user_program.cu virtual_memory.cu -o test
+nvcc --relocatable-device-code=true main.cu user_program.cu file_system.cu -o test
 ```
 
-and run `./test` to run the program.
+and run `./test` to run the program (might need `srun` in the cluster).
 
 ## Basic task sample outputs
 
-On the first test program:
+On the first test program: (The first 36 lines are compiler warnings)
 
-![Untitled](Assignment%203%20Project%20Report%20747bad9787864c83abf4a0185b5fe2d3/Untitled%204.png)
+![Untitled](Assignment%204%20Project%20Report%20df997535fd09484fbe8700aea427099a/Untitled%204.png)
 
-On the second test program (the one that was released later):
+On the second test program: (The first 36 lines are compiler warnings)
 
-![Untitled](Assignment%203%20Project%20Report%20747bad9787864c83abf4a0185b5fe2d3/Untitled%205.png)
+![Untitled](Assignment%204%20Project%20Report%20df997535fd09484fbe8700aea427099a/Untitled%205.png)
 
-Note that for this task, it requires several seconds or more than 10 seconds to complete the program and produce the final page fault number.
+On the third test program: (there are too many lines and we only display the begin, middle and end)
+
+![Untitled](Assignment%204%20Project%20Report%20df997535fd09484fbe8700aea427099a/Untitled%206.png)
+
+![Untitled](Assignment%204%20Project%20Report%20df997535fd09484fbe8700aea427099a/Untitled%207.png)
+
+![Untitled](Assignment%204%20Project%20Report%20df997535fd09484fbe8700aea427099a/Untitled%208.png)
+
+One the fourth test case: (there are too many lines and we only screenshot the beginning and end)
+
+![Untitled](Assignment%204%20Project%20Report%20df997535fd09484fbe8700aea427099a/Untitled%209.png)
+
+![Untitled](Assignment%204%20Project%20Report%20df997535fd09484fbe8700aea427099a/Untitled%2010.png)
+
+I checked that for test case 4, the `snapshot.bin` is the same as `data.bin`:
+
+![Untitled](Assignment%204%20Project%20Report%20df997535fd09484fbe8700aea427099a/Untitled%2011.png)
+
+For test case 3, the `snapshot.bin` is the same as expected, where 
+
+![Untitled](Assignment%204%20Project%20Report%20df997535fd09484fbe8700aea427099a/Untitled%2012.png)
+
+![Untitled](Assignment%204%20Project%20Report%20df997535fd09484fbe8700aea427099a/Untitled%2013.png)
+
+For test case 2 and 1, with the offset, the snapshots behave as expected:
+
+![Untitled](Assignment%204%20Project%20Report%20df997535fd09484fbe8700aea427099a/Untitled%2014.png)
 
 ## Bonus Task Compilation and running
 
@@ -72,115 +98,76 @@ sbatch slurm.sh
 
 ## Bonus task sample output
 
-Because in the bonus task, I adopted the third version approach to implement the multithreaded VM, which is to use 512kb for storage memory and the four threads do not overwrite each other. Therefore the execution time is estimated to be around **four times** as the basic task, which can take long (40 seconds or so) and please be patient to wait for the final output.
+For test case 1 and 2, I have checked that the output as well as the snapshot comparison is the same as the basic task, please refer to the previous results.
 
-![Untitled](Assignment%203%20Project%20Report%20747bad9787864c83abf4a0185b5fe2d3/Untitled%206.png)
+For the bonus test case, the output is shown below, the first 91 lines are compiler warnings.
+
+![Untitled](Assignment%204%20Project%20Report%20df997535fd09484fbe8700aea427099a/Untitled%2015.png)
 
 # Program Design
 
-## Basic task design:
+## Basic task design
 
-In this CUDA program, we simulate the physical memory (48kb, 32kb for data access and 16kb for page table) using shared memory. We simulate the secondary memory (disk), 128kb with global memory. We also implement a swap table in the global memory, with 4096 `u32` entries. We use the `LRU` algorithm as the page replacement policy, its detail will be described later.
+In this CUDA program, we implement a single-directory file system using a limited GPU memory pool. The memory usage strictly obeys the one in the instruction, that no extra global memory is maintained or used. Temporary usage for function stack is limited. 
 
-### Designing the page table
+![Untitled](Assignment%204%20Project%20Report%20df997535fd09484fbe8700aea427099a/Untitled%2016.png)
 
-In our implementation, the page size is 32 bytes. Therefore the total page entries is 32kb / 32 = 1024 entries. Because this count is limited, we implement an inverted page table using an array with 1024 entries. For each entry we use 64 bits, which contains one bit for on/off indication, 31 bits for storing the page number corresponding to that frame; and the rest 32 bits for storing its access count trace (for LRU implementation). This in total takes 8kb, which is less than the permitted size of 16kb and is adequate (in fact, we can use less bits because in the environment given, the page number is not so large as 31 bits and so as the access trace. But our implementation here is simper by using two `u32`s).
+For the task, we allocate a volume of 1060kb with the 4kb volume control block using bitmap, 32kb for 1024 FCBs, each FCB is 32 bytes. The content of files use 1024kb, divided into storage blocks each 32 bytes.
 
-![Untitled](Assignment%203%20Project%20Report%20747bad9787864c83abf4a0185b5fe2d3/Untitled%207.png)
+### FCB Structure
 
-### Designing the function `vm_write` and `vm_read`
+Here is the FCB structure I used. Note that this does not create extra memory space, we just turn the specific portion of volume, originally `uchar*` to `FCB*` for better information storage and retrieval. I have tested that the `sizeof(FCB)` is 32, which is exactly the size of desired FCB. The attributes are self-explanatory.
 
-In the `vm_write` function, it takes an address and write value to that address. I distinguish it into 4 cases.
+![Untitled](Assignment%204%20Project%20Report%20df997535fd09484fbe8700aea427099a/Untitled%2017.png)
 
-First, the address is separated into the page number and offset field by extracting the corresponding bits. Then, the page number is compared with each in the inverted page table.
+### Allocation strategy
 
-**Case1:** the target address is found in the inverted page table. Then, directly write to the corresponding frame added with the offset.
+The maximum file size allowed is the total content size of files, 1024 KB. I use dynamic, contiguous allocation together with compaction algorithm to maintain the FS. The dynamic scheme is to allow storing this maximum size of file. 
 
-**Case2:** there is an unused entry in the inverted page table. This means that the page does not exist yet. We allocate a new page, update the page table and write to the new frame.
+The contiguous allocation is one such that adjacent blocks store the file content sequentially, as illustrated in the figure: 
 
-If it’s not in case 1, then it is page fault and the count number will be increased. Then, the page number is compared with each entry of the swap table. The swap table uses the same structure with the inverted page table with 4096 entries, but not using the access trace field.
+![Untitled](Assignment%204%20Project%20Report%20df997535fd09484fbe8700aea427099a/Untitled%2018.png)
 
-**Case3**: page is not found in inverted page table. But is found in the swap table. Then, swap the page in the disk with an LRU page, record the replaced frame number. Then, write to that frame.
+The compaction algorithm is utilized when there is fragmentation and a newly written file cannot file enough space. In my compaction algorithm implementation, I maintain a pointer to the first unused block and the first used block moving forward together. They are constantly swapped, which in effect “compacts” all the used blocks to the front. In the mean time, we update the FCB’s content block attribute.
 
-**Case4**: page is not found in both page tables. This means that the page does not exist yet. We allocate a new page in an empty place in the disk, and swap that page with an LRU page. Then write.
+![Compaction algorithm](Assignment%204%20Project%20Report%20df997535fd09484fbe8700aea427099a/Untitled%2019.png)
 
-In the `vm_read` function, given an address, we similarly extract the page number and offset. Compare the page number with each page table entry. There are 2 cases:
+Compaction algorithm
 
-**Case 1**. page is found in inverted page table. Then, we return the value at `vm->buffer[frame_no*vm->PAGESIZE + offset]`
+For the superblock, I use the bitmap, which uses one bit for one content block to indicate on or off. 
 
-**Case 2**. page is not found in inverted page table. Then, we find in the swap table. The page that was found is swapped with an LRU main memory page. Then, return the value at `vm->buffer[swapped_frame_no*vm->PAGESIZE + offset]`
+### Designing the APIs
 
-### About LRU
+All the required APIs `fs_open`, `fs_read`, `fs_write`, `fs_gsys` (including LS_S, LS_D, rm operations) are implemented. The `fs_open` returns an fp, which is the index of the FCB in the FCB array. Another interesting point is for the LS_D and LS_S operations. I did not use external storage for these two sorting operations. Instead, my implementation is simple, which is in each time, traverse all files and find the largest element that is not printed. This does not need to re-place the blocks. The following figure shows my implementation of `LS_D`. 
 
-As mentioned above, in the page entry we use addition bits to store an `access trace`, which is essentially a counter that is added at each read or write operation. To choose an LRU page, we directly select the page with the minimum `access trace`.
+![Untitled](Assignment%204%20Project%20Report%20df997535fd09484fbe8700aea427099a/Untitled%2020.png)
+
+The LS_S is more tricky but still uses the above idea. We do three traverses in total. First we traverse each item to get the largest unprinted size of files. Then we traverse to get the count of the largest size files. Then find the file with the file size of largest_file_size and the **earliest created time** among all unprinted items.
 
 ## Bonus task design
 
-In this bonus task, we’re required to simulate a multithreading scenario of the page table. Because it is inefficient to implement one page table for each thread, we use only one page table shared among the threads, and inside each entry, we use two bits to also record the thread number. Thus, **each thread performs read and wirte independent of each other, even with the same address.** Because of this need, the storage of the program in the basic task is expanded to **512kb**. This design is the same as the **third version** in the additional notes posted by TAs.
+The bonus task is based upon the basic task with modification to add files for directories.
 
-To simulate the multithread feature without worrying about the security / integrity issues, we launch one kernel thread, and maintain a thread id variable in the `vm` data structure indicating the thread number executing an instruction. We make each instruction executed in each thread in sequence before executing the next instruction. For the `vm_read` operation, we only return the result of the last `vm_read` in the fourth thread. This also means, that the `vm_snapshot` function will return all the content written by the fourth thread, because it uses `vm_read` .
+Firstly, we need to add a new attribute to trace the current working directory. I add to the `fs` struct.
 
-```mermaid
-flowchart TB
-  id1["execute user program read/write operation"]
-	id2["recursively execute the same operation in another thread until all four threads execute it"]
-	
-id1-->id2-->id1
-		
-```
+![Untitled](Assignment%204%20Project%20Report%20df997535fd09484fbe8700aea427099a/Untitled%2021.png)
 
-# Page Fault number and analysis
+Then, the FCB should be different to record each file’s directory index. 
 
-## Basic task: test case 1
+We squeeze the `is_on` and `is_dir` 1-bit attribute to the first two bits of `u32 size`. So this is 32 bytes again.
 
-As show above in the program output, the page fault count for the first test program is **8193**. This is because, firstly we write 128kb, which is 4096 entries into memory. Because no page exist yet, so all 4096 pages will produce page fault.
+![Untitled](Assignment%204%20Project%20Report%20df997535fd09484fbe8700aea427099a/Untitled%2022.png)
 
-![Untitled](Assignment%203%20Project%20Report%20747bad9787864c83abf4a0185b5fe2d3/Untitled%208.png)
+My implementation does not use extra global memory. Other implementations are similar to basic task. Because we record the file contents or subdirectory names in the content of directory, we need to traverse and check the filename match and the `dir_idx` match the cwd.
 
-Then, we read 32769bytes(32kb+1byte). The first 32kb is in main memory, so no page fault there. But when we read addition one byte, that will be one page fault.
+All required operations are supported, including the extra command `MKDIR`,  `PWD`, `CD` , `RM_RF` and `CD_P`, in addition to the ones in basic task.
 
-![Untitled](Assignment%203%20Project%20Report%20747bad9787864c83abf4a0185b5fe2d3/Untitled%209.png)
-
-Then in the `vm_snapshot`, we start from address 0, which is in page 0 and read 4096 pages. Therefore at the beginning there’s page fault. Therefore this is another 4096 page faults. 
-
-So in total, there is 4096 + 1 + 4096 = 8193 page faults.
-
-## Basic task: test case 2
-
-The total page fault is **9215**, as shown in the output. In this addition test case, we first write 128kb, 4096 entries into memory starting from address 32*1024. This first step, like above, will give total page fault, 4096.
-
-Then, we write (32kb-32b) data starting from 0. Because these are also new pages, so will give total page fault, (1024-1) = 1023. (because each page is 32 bytes).
-
-![Untitled](Assignment%203%20Project%20Report%20747bad9787864c83abf4a0185b5fe2d3/Untitled%2010.png)
-
-Then, we read out VM[32K, 160K]. Because these pages are also not in the main memory, so also total page fault, 4096.
-
-So in total 4096 + 1023 + 4096 = 9215 page faults.
-
-## Bonus task: test case 1
-
-As show above in the program output, the page fault count for the first test program is **35844**. This is because, first we write 128kb * 4, which is 4096 * 4 entries into memory. Because no page exist yet, so all 4096 * 4 =  16384 pages will produce page fault.
-
-![Untitled](Assignment%203%20Project%20Report%20747bad9787864c83abf4a0185b5fe2d3/Untitled%2011.png)
-
-Then for each of the four threads it reads 32769bytes(32kb+1byte). 
-
-![Untitled](Assignment%203%20Project%20Report%20747bad9787864c83abf4a0185b5fe2d3/Untitled%209.png)
-
-The state of the main memory is:
-
-![Untitled](Assignment%203%20Project%20Report%20747bad9787864c83abf4a0185b5fe2d3/Untitled%2012.png)
-
-First, we assume that all pages in the main memory are transferred into secondary memory. Thus, all reads will result in page fault, therefore in total 1025 * 4 = 4100 page faults.
-
-Then, we minus the page reads that are already in the memory: 4100 - 1024 = 3076 page faults. Because the pages written last are read first, so no error here.
-
-Then in the `vm_snapshot`, we start from address 0, which is in page 0 and read 4096 pages. Therefore at the beginning there’s page fault. Therefore this is another 4096 * 4 = 16384 page faults. 
-
-So in total, there is 16384 + 3076 + 16384 = 35844 page faults.
+My implementation also supports absolute addressing to increase robustness.
 
 # Project reflection and conclusion
 
-Several problems I met in this assignment gave me valuable experience in solving them. The first is about the page table design. At first, I followed the regular page table design, which is to track both the frame number and the page number in one entry. But soon later I discovered that the inverted page table design is much more suitable for this. Because the frame number can be implicitly implied in the inverted page table design (by the index number), thus we only need to record the page number. Another problem is about how to implement multithreading. At first I thought we must launch four kernel threads by using `mykernel<<<1,4>>>`, however this would lead to very tough security and integrity problems, which can be out of my knowledge. I countered this issue by implementing a scheduling scheme such that each thread is executed after completion of previous thread by using recursive call and modifying the thread id attribute.
+Several problems I met in this assignment gave me valuable experience in solving them. The first is 
 
-I think this project is a valuable experience for learning the hierarchical memory structure, including main memory and secondary and swapping between them, and more importantly, paging. I also learn the technique of writing CUDA programs, which are somewhat like C/C++ but need to distinguish CPU memory and device memory, global, shared and private variables, and allocating GPU heap memory.
+about data structure used to implement FCB in bonus. At first I thought 32 bytes is not enough and want to implement a doubly linked list in the bonus. However, later I found that I could squeeze the FCB on/off bits, and can use a filename match traversing strategy instead of linked list. This allows mroe efficient storage utilization. 
+
+I think this project is a valuable experience for learning the FS, including dynamic allocation, contiguous allocation, compaction. I also learn the technique of writing CUDA programs, which are somewhat like C/C++ but have restricted access to some standard library routines, like `memcpy`.
