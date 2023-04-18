@@ -81,6 +81,10 @@ nvcc --relocatable-device-code=true main.cu user_program.cu file_system.cu -o te
 
 and run `./test` to run the program (might need `srun` in the cluster).
 
+## Using the program
+One can write user programs that gives commands to the file system by modifying the `user_program.cu`. Some usage samples have been provided there as well.
+
+<!-- 
 ## Basic task sample outputs
 
 On the first test program: (The first 36 lines are compiler warnings)
@@ -133,7 +137,7 @@ For test case 1 and 2, I have checked that the output as well as the snapshot co
 
 For the bonus test case, the output is shown below, the first 91 lines are compiler warnings.
 
-![Untitled](images/Untitled%2015.png)
+![Untitled](images/Untitled%2015.png) -->
 
 # Program Design
 
@@ -196,9 +200,5 @@ All required operations are supported, including the extra command `MKDIR`,  `PW
 My implementation also supports absolute addressing to increase robustness.
 
 # Project reflection and conclusion
-
-Several problems I met in this assignment gave me valuable experience in solving them. The first is 
-
-about data structure used to implement FCB in bonus. At first I thought 32 bytes is not enough and want to implement a doubly linked list in the bonus. However, later I found that I could squeeze the FCB on/off bits, and can use a filename match traversing strategy instead of linked list. This allows mroe efficient storage utilization. 
 
 I think this project is a valuable experience for learning the FS, including dynamic allocation, contiguous allocation, compaction. I also learn the technique of writing CUDA programs, which are somewhat like C/C++ but have restricted access to some standard library routines, like `memcpy`.
