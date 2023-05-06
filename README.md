@@ -226,6 +226,7 @@ The LS_S is more tricky but still uses the above idea. We do three traverses in 
 The bonus task is based upon the basic task with modification to add files for directories.
 
 Firstly, we need to add a new attribute to trace the current working directory. I add to the `fs` struct.
+
     struct FileSystem {
         uchar *volume;
         int SUPERBLOCK_SIZE;
